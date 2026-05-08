@@ -28,6 +28,9 @@ Optional env vars (each module degrades gracefully if absent):
   APOLLO_API_KEY         — Apollo Bulk Enrichment (1 credit/person)
 """
 
+import time
+from datetime import datetime, timezone
+
 import argparse
 import logging
 import json
@@ -57,6 +60,7 @@ def process_prospect(
     prospect: dict,
     sheets: SheetsClient,
     query: str,
+    run_id: str,
     dry_run: bool = False,
     usage: "RunUsage" = None,
 ) -> dict:
@@ -101,20 +105,38 @@ def process_prospect(
     if config.APOLLO_ENABLED:
         logger.info(f"  Step 1: Apollo Validation/Discovery...")
         if not config.APOLLO_MASTER_API_KEY or not config.APOLLO_API_KEY:
-            logger.warning(
-                "Apollo is ENABLED but one or both API keys are missing. "
-                "Set APOLLO_MASTER_API_KEY and APOLLO_API_KEY in your .env"
+            sheets.write_log(
+                run_id=run_id, query=query, company=company, domain=domain,
+                step="Apollo", status="SKIPPED",
+                detail="One or both API keys missing",
             )
+            logger.warning("Apollo is ENABLED but one or both API keys are missing.")
         else:
+            t0 = time.monotonic()
             try:
                 prospect = enrich_power_map(prospect, usage_tracker=usage)
                 result["prospect"] = prospect
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                contacts_found = len(get_contacts_from_power_map(prospect))
+                cur = usage._current
+                sheets.write_log(
+                    run_id=run_id, query=query, company=company, domain=domain,
+                    step="Apollo",
+                    status="OK",
+                    detail=f"{contacts_found} contact(s) found",
+                    credits=cur.apollo_enrich_credits if cur else 0,
+                    cost_usd=cur.apollo_enrich_credits * 0.49 if cur else 0,
+                    duration_ms=duration_ms,
+                )
                 logger.info(f"  Apollo: power map enriched for '{company}'")
             except Exception as exc:
-                logger.warning(
-                    f"  Apollo: enrichment failed for '{company}' "
-                    f"(continuing without it): {exc}"
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                sheets.write_log(
+                    run_id=run_id, query=query, company=company, domain=domain,
+                    step="Apollo", status="FAILED",
+                    error=str(exc), duration_ms=duration_ms,
                 )
+                logger.warning(f"  Apollo: enrichment failed for '{company}': {exc}")
 
     # ------------------------------------------------------------------
     # Step 2 — Exa: LinkedIn post intelligence per exec
@@ -122,33 +144,51 @@ def process_prospect(
     # Silently skips if EXA_API_KEY is not set.
     # ------------------------------------------------------------------
     logger.info(f"  Step 2: Exa LinkedIn Intelligence...")
+    t0 = time.monotonic()
     try:
         prospect = enrich_prospect_power_map(prospect, usage_tracker=usage)
         result["prospect"] = prospect
-
-        # Check if Exa found anything useful
-        pm = prospect.get("power_map", {})
+        pm     = prospect.get("power_map", {})
         vis_li = pm.get("the_visionary", {}).get("linkedin_intel", {})
         ops_li = pm.get("the_operator", {}).get("linkedin_intel", {})
         result["exa_enriched"] = bool(
-            vis_li.get("linkedin_posts_found") or
-            ops_li.get("linkedin_posts_found")
+            vis_li.get("linkedin_posts_found") or ops_li.get("linkedin_posts_found")
         )
         if vis_li.get("linkedin_posts_found") or ops_li.get("linkedin_posts_found"):
             result["exa_enriched"] = "found"
-            logger.info(f"  Exa: LinkedIn intel found for '{company}'")
+            exa_detail = "Posts found"
         elif vis_li or ops_li:
             result["exa_enriched"] = "ran"
-            logger.info(f"  Exa: ran for '{company}' but no posts found in last 90 days")
+            exa_detail = "Ran — no posts found in last 90 days"
         else:
             result["exa_enriched"] = False
-            logger.debug(f"  Exa: skipped for '{company}' (no exec name or key not set)")
-
-    except Exception as exc:
-        logger.warning(
-            f"  Exa: enrichment failed for '{company}' "
-            f"(continuing without it): {exc}"
+            exa_detail = "Skipped — no exec name or key not set"
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        cur = usage._current
+        exa_credits = cur.exa_exec_searches if cur else 0
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Exa",
+            status="SKIPPED" if not (vis_li or ops_li) else "OK",
+            detail=exa_detail,
+            credits=exa_credits,
+            cost_usd=exa_credits * 0.005,
+            duration_ms=duration_ms,
         )
+        if result["exa_enriched"] == "found":
+            logger.info(f"  Exa: LinkedIn intel found for '{company}'")
+        elif result["exa_enriched"] == "ran":
+            logger.info(f"  Exa: ran for '{company}' but no posts found")
+        else:
+            logger.debug(f"  Exa: skipped for '{company}'")
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Exa", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
+        logger.warning(f"  Exa: enrichment failed for '{company}': {exc}")
 
     # ------------------------------------------------------------------
     # Step 3 — Qualify (Claude Sonnet)
@@ -156,39 +196,57 @@ def process_prospect(
     # ------------------------------------------------------------------
     logger.info(f"  Step 3: Analyst Qualification (Sonnet)...")
     clean_prospect = json.loads(json.dumps(prospect, default=lambda o: None))
+    t0 = time.monotonic()
     try:
         analyst = qualify_prospect(clean_prospect, usage_tracker=usage)
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        result["refined_score"] = analyst.get("refined_score")
+        result["verdict"]       = analyst.get("verdict")
+        result["analyst"]       = analyst
+        score = result["refined_score"]
+        override = False
+        if score is not None:
+            if score >= 70:   enforced_verdict = "HOT"
+            elif score >= 50: enforced_verdict = "WARM"
+            else:             enforced_verdict = "COLD"
+            if enforced_verdict != result["verdict"]:
+                logger.warning(
+                    f"  Analyst verdict override: Claude said {result['verdict']} "
+                    f"but score={score} → forcing {enforced_verdict}"
+                )
+                result["verdict"]  = enforced_verdict
+                analyst["verdict"] = enforced_verdict
+                override = True
+        cur = usage._current
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Sonnet",
+            status="OK",
+            detail=(
+                f"score={result['refined_score']} verdict={result['verdict']}"
+                + (" [OVERRIDE]" if override else "")
+            ),
+            tokens_in=cur.sonnet_input_tokens if cur else 0,
+            tokens_out=cur.sonnet_output_tokens if cur else 0,
+            cost_usd=(
+                (cur.sonnet_input_tokens / 1e6 * 3) +
+                (cur.sonnet_output_tokens / 1e6 * 15)
+            ) if cur else 0,
+            duration_ms=duration_ms,
+        )
     except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Sonnet", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
         logger.error(f"  Analyst failed for '{company}': {exc}")
         result["error"] = f"Analyst: {exc}"
         return result
 
-    result["refined_score"] = analyst.get("refined_score")
-    result["verdict"]       = analyst.get("verdict")
-    result["analyst"]       = analyst
-
-    score = result["refined_score"]
-    if score is not None:
-        if score >= 70:
-            enforced_verdict = "HOT"
-        elif score >= 50:
-            enforced_verdict = "WARM"
-        else:
-            enforced_verdict = "COLD"
-
-        if enforced_verdict != result["verdict"]:
-            logger.warning(
-                f"  Analyst verdict override for '{company}': "
-                f"Claude said {result['verdict']} but score={score} → forcing {enforced_verdict}"
-            )
-            result["verdict"] = enforced_verdict
-            analyst["verdict"] = enforced_verdict
-
-    # Route based on verdict directly — not write_to_sheet alone
-    # (write_to_sheet can be unreliable if Claude slightly deviates from schema)
     verdict = result["verdict"] or "COLD"
     is_cold = verdict == "COLD"
-
 
     if is_cold:
         logger.info(
@@ -202,22 +260,16 @@ def process_prospect(
             f"(score: {result['refined_score']}, verdict: {verdict})"
         )
 
-    if dry_run:
-        logger.info(
-            f"  [DRY RUN] '{company}' -> score={result['refined_score']} "
-            f"verdict={verdict} exa={'YES' if result['exa_enriched'] else 'NO'} "
-            f"-> {'COLD' if is_cold else 'HOT'} tab"
-        )
-        return result
-
     # ------------------------------------------------------------------
     # Step 4 — Draft outreach (Claude Opus)
     # GATED: only runs for HOT and WARM. COLD gets a stub — saves ~$0.07/call.
     # ------------------------------------------------------------------
     if is_cold:
-        logger.info(
-            f"  Step 4: Skipping Opus for COLD lead '{company}' "
-            f"(verdict=COLD, saving ~$0.07)"
+        logger.info(f"  Step 4: Skipping Opus for COLD lead '{company}'")
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Opus", status="SKIPPED",
+            detail="COLD lead — outreach not drafted",
         )
         emails = {
             "visionary_email": {
@@ -228,11 +280,33 @@ def process_prospect(
         }
     else:
         logger.info(f"  Step 4: Copywriter Personalization (Opus)...")
+        t0 = time.monotonic()
         try:
             emails = draft_outreach(prospect, analyst, usage_tracker=usage)
             if not isinstance(emails, dict) or "visionary_email" not in emails:
                 raise ValueError("Copywriter returned prose instead of JSON")
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            cur = usage._current
+            sheets.write_log(
+                run_id=run_id, query=query, company=company, domain=domain,
+                step="Opus",
+                status="OK",
+                detail=f"subj='{emails['visionary_email'].get('subject_line','')[:60]}'",
+                tokens_in=cur.opus_input_tokens if cur else 0,
+                tokens_out=cur.opus_output_tokens if cur else 0,
+                cost_usd=(
+                    (cur.opus_input_tokens / 1e6 * 15) +
+                    (cur.opus_output_tokens / 1e6 * 75)
+                ) if cur else 0,
+                duration_ms=duration_ms,
+            )
         except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            sheets.write_log(
+                run_id=run_id, query=query, company=company, domain=domain,
+                step="Opus", status="FAILED",
+                error=str(exc), duration_ms=duration_ms,
+            )
             logger.error(f"  Copywriter failed for '{company}': {exc}")
             emails = {
                 "visionary_email": {
@@ -248,7 +322,6 @@ def process_prospect(
 
     # ------------------------------------------------------------------
     # Step 5 — Extract Apollo contacts for Sheets columns
-    # Already enriched into power_map — just pull them out
     # ------------------------------------------------------------------
     contacts = []
     if config.APOLLO_ENABLED:
@@ -261,14 +334,9 @@ def process_prospect(
     # ------------------------------------------------------------------
     # Step 6 — Write to Sheets (Hot or Cold tab)
     # ------------------------------------------------------------------
+    t0 = time.monotonic()
     try:
-        # Always one row per prospect — Apollo contact populates the Apollo columns
-        # but does not create multiple rows. The Operator's identity is already
-        # in the power map columns (Operator Name, Operator LinkedIn, etc.).
-        # Using the first contact (Visionary) for the Apollo columns; if only
-        # the Operator was found, that contact is used instead.
         primary_contact = contacts[0] if contacts else None
-
         written = sheets.append_lead(
             prospect, analyst, emails,
             contact=primary_contact,
@@ -277,14 +345,31 @@ def process_prospect(
         )
         if written:
             result["rows_written"] = 1
-
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Sheets",
+            status="OK" if written else "SKIPPED",
+            detail=(
+                f"Written to {'Cold Leads' if is_cold else 'Leads'}"
+                if written else "Duplicate — skipped"
+            ),
+            duration_ms=duration_ms,
+        )
     except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company=company, domain=domain,
+            step="Sheets", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
         logger.error(f"  Sheets write failed for '{company}': {exc}")
         result["error"] = f"Sheets: {exc}"
 
     if usage:
         usage.end_prospect()
     return result
+
 
 
 # ---------------------------------------------------------------------------
@@ -305,18 +390,39 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
         f"Exa={'ON' if config.EXA_ENABLED else 'OFF'}"
     )
 
+    run_id  = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     usage   = RunUsage(query)
     sheets  = SheetsClient()
     summary = []
 
+    usage.start_prospect("_grok_research")
+    t0 = time.monotonic()
     # Step 1 — Grok research waterfall
     try:
         grok_result = run_research_waterfall(query, usage_tracker=usage)
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        prospects = grok_result.get("prospects", [])
+        cur = usage._prospects[0] if usage._prospects else None
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Grok",
+            status="OK",
+            detail=f"{len(prospects)} prospect(s) returned",
+            tokens_in=cur.grok_input_tokens if cur else 0,
+            tokens_out=cur.grok_output_tokens if cur else 0,
+            duration_ms=duration_ms,
+        )
     except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Grok", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
+        usage.end_prospect()
         logger.error(f"Grok waterfall failed: {exc}")
         return [{"error": str(exc), "company": "", "domain": ""}]
-
-    prospects = grok_result.get("prospects", [])
+    usage.end_prospect()
 
     if not prospects:
         logger.warning("Grok returned no prospects. Try a broader query.")
@@ -338,7 +444,7 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     for i, prospect in enumerate(prospects, 1):
         company = prospect.get("name", "?")
         logger.info(f"[{i}/{len(prospects)}] {company}")
-        result = process_prospect(prospect, sheets, query, dry_run=dry_run, usage=usage)
+        result = process_prospect(prospect, sheets, query, run_id, dry_run=dry_run, usage=usage)
         summary.append(result)
 
     usage.finish()

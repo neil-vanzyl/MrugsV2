@@ -54,7 +54,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ.get(
 GOOGLE_SHEET_NAME: str = os.environ.get("GOOGLE_SHEET_NAME", "OTT Leads")
 GOOGLE_WORKSHEET_NAME: str = os.environ.get("GOOGLE_WORKSHEET_NAME", "Leads")
 GOOGLE_COLD_WORKSHEET_NAME: str = os.environ.get("GOOGLE_COLD_WORKSHEET_NAME", "Cold Leads")
-
+GOOGLE_LOGS_WORKSHEET_NAME: str = os.environ.get("GOOGLE_LOGS_WORKSHEET_NAME", "Logs")
 # ---------------------------------------------------------------------------
 # Model selection
 # ---------------------------------------------------------------------------

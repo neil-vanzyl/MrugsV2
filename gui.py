@@ -577,7 +577,7 @@ def _run_and_display(query_str: str, dry: bool) -> None:
         if log_stream:
             log_contents = log_stream.getvalue()
             if log_contents:
-                st.code(log_contents[-12000:], language=None)
+                st.code(log_contents, language=None)
             else:
                 st.caption("No log output captured for this run.")
         else:

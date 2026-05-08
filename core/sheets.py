@@ -21,6 +21,22 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+LOG_COLUMNS = [
+    "Timestamp",
+    "Run ID",
+    "Query",
+    "Company",
+    "Domain",
+    "Step",
+    "Status",
+    "Detail",
+    "Tokens In",
+    "Tokens Out",
+    "Credits",
+    "Cost USD",
+    "Error",
+    "Duration ms",
+]
 
 class SheetsClient:
     """
@@ -32,6 +48,7 @@ class SheetsClient:
         self._ss: Optional[gspread.Spreadsheet] = None
         self._ws_hot: Optional[gspread.Worksheet] = None
         self._ws_cold: Optional[gspread.Worksheet] = None
+        self._ws_logs: Optional[gspread.Worksheet] = None
         self._seen_domains: Set[str] = set()
         self._seen_pairs: Set[tuple] = set()   # (domain, contact_name)
 
@@ -72,24 +89,24 @@ class SheetsClient:
         # Connect/Create Cold Worksheet
         self._ws_cold = self._get_or_create_ws(config.GOOGLE_COLD_WORKSHEET_NAME)
 
+        #connect to logs worksheet
+        self._ws_logs = self._get_or_create_ws(config.GOOGLE_LOGS_WORKSHEET_NAME, LOG_COLUMNS)
+
         self._load_dedup_cache()
 
-    def _get_or_create_ws(self, title: str) -> gspread.Worksheet:
-        """Helper to find or create a worksheet and ensure headers exist."""
+    def _get_or_create_ws(self, title: str, columns: list = None) -> gspread.Worksheet:
+        cols = columns or config.SHEET_COLUMNS
         try:
             ws = self._ss.worksheet(title)
         except gspread.WorksheetNotFound:
             ws = self._ss.add_worksheet(
                 title=title,
-                rows=2000,
-                cols=len(config.SHEET_COLUMNS),
+                rows=10000,
+                cols=len(cols),
             )
-        
-        # Ensure headers
-        if not ws.row_values(1) or ws.row_values(1) != config.SHEET_COLUMNS:
-            ws.update("A1", [config.SHEET_COLUMNS])
+        if not ws.row_values(1) or ws.row_values(1) != cols:
+            ws.update("A1", [cols])
             logger.info(f"Sheets: header row written for '{title}'")
-        
         return ws
 
     # ------------------------------------------------------------------
@@ -228,6 +245,45 @@ class SheetsClient:
         )
         return True
 
+    def write_log(
+        self,
+        run_id: str,
+        query: str,
+        company: str,
+        domain: str,
+        step: str,
+        status: str,
+        detail: str = "",
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        credits: int = 0,
+        cost_usd: float = 0.0,
+        error: str = "",
+        duration_ms: int = 0,
+    ) -> None:
+        """Write one API call audit row to the Logs worksheet."""
+        self._connect()
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        row = [
+            ts,
+            run_id,
+            query[:80],
+            company,
+            domain,
+            step,
+            status,
+            detail[:300] if detail else "",
+            tokens_in or "",
+            tokens_out or "",
+            credits or "",
+            round(cost_usd, 4) if cost_usd else "",
+            error[:300] if error else "",
+            duration_ms or "",
+        ]
+        try:
+            self._ws_logs.append_row(row, value_input_option="RAW")
+        except Exception as exc:
+            logger.warning(f"Sheets: log write failed for '{company}' / {step}: {exc}")
 
 def _strip_citation(value: str) -> str:
     """
