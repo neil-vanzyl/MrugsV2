@@ -52,8 +52,8 @@ class SheetsClient:
             sa_info = None
         try:
             import streamlit as st
-            if "GOOGLE_SERVICE_ACCOUNT" in st.secrets:
-                sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+            if "GOOGLE_SERVICE_ACCOUNT_JSON" in st.secrets:
+                sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
         except Exception:
             pass
         if sa_info is None:
