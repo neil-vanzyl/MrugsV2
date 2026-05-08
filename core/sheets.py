@@ -45,16 +45,13 @@ class SheetsClient:
             return
 
         import json, os
-		sa_path = config.GOOGLE_SERVICE_ACCOUNT_JSON
-		if os.path.exists(sa_path):
-		    # Local: load from file as before
-		    creds = Credentials.from_service_account_file(sa_path, scopes=SCOPES)
-		else:
-		    # Streamlit Cloud: load from environment variable
-		    sa_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "{}"))
-		    creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+        sa_path = config.GOOGLE_SERVICE_ACCOUNT_JSON
+        if os.path.exists(sa_path):
+            creds = Credentials.from_service_account_file(sa_path, scopes=SCOPES)
+        else:
+            sa_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "{}"))
+            creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
         gc = gspread.authorize(creds)
-
         try:
             self._ss = gc.open(config.GOOGLE_SHEET_NAME)
         except gspread.SpreadsheetNotFound:
