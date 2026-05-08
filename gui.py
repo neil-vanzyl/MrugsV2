@@ -13,6 +13,7 @@ Streamlit GUI with:
 import json
 import logging
 import os
+from io import StringIO
 import streamlit as st
 import pandas as pd
 import main
@@ -21,10 +22,20 @@ from utils.helpers import setup_logging
 from utils.usage_tracker import load_usage_history
 from datetime import datetime
 
-# Setup logging once at import — level INFO by default.
-# main() re-calls it with DEBUG when --debug is passed via CLI,
-# but for the GUI INFO is always correct.
+# Setup logging once at import
 setup_logging(level=logging.INFO)
+
+# ---------------------------------------------------------------------------
+# In-memory log capture (Streamlit Cloud safe — no filesystem dependency)
+# ---------------------------------------------------------------------------
+
+if "log_stream" not in st.session_state:
+    st.session_state["log_stream"] = StringIO()
+    _stream_handler = logging.StreamHandler(st.session_state["log_stream"])
+    _stream_handler.setFormatter(
+        logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s  —  %(message)s")
+    )
+    logging.getLogger("ott_lead_gen").addHandler(_stream_handler)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -128,7 +139,6 @@ def render_usage_panel(usage_summary: dict) -> None:
         st.divider()
         st.markdown(f"**Total: ${total:.4f}** across {n} prospect(s)  ·  ${per_p:.4f} per prospect")
 
-        # Per-prospect breakdown
         per_p_list = usage_summary.get("per_prospect", [])
         if per_p_list:
             st.markdown("**Per-prospect breakdown**")
@@ -144,7 +154,6 @@ def render_usage_panel(usage_summary: dict) -> None:
                     "Apollo": p.get("apollo_enrich_credits", 0),
                     "Cost $": f"{p.get('cost_usd', 0):.4f}",
                 })
-            import pandas as pd
             st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
 
@@ -408,7 +417,6 @@ with st.sidebar:
         try:
             history = load_usage_history(max_runs=10)
             if history:
-                import pandas as pd
                 rows = [
                     {
                         "Date": h.get("timestamp", "")[:16],
@@ -468,6 +476,12 @@ with btn_col2:
 # ---------------------------------------------------------------------------
 
 def _run_and_display(query_str: str, dry: bool) -> None:
+    # Clear log buffer at the start of each run so the viewer shows only this run
+    log_stream = st.session_state.get("log_stream")
+    if log_stream:
+        log_stream.truncate(0)
+        log_stream.seek(0)
+
     with st.status(
         f"Researching: *{query_str[:80]}{'…' if len(query_str) > 80 else ''}*",
         expanded=True,
@@ -499,7 +513,6 @@ def _run_and_display(query_str: str, dry: bool) -> None:
     m4.metric("❄️ COLD", cold)
     m5.metric("Written to Sheets", "—" if dry else written)
 
-    # Usage / cost panel — reads from first result (all carry the same run-level summary)
     if results:
         usage_summary = results[0].get("usage_summary", {})
         if usage_summary:
@@ -515,7 +528,7 @@ def _run_and_display(query_str: str, dry: bool) -> None:
                 "- Column count mismatch between config.py and sheets.py\n"
                 "- All leads were duplicate domains\n"
                 "- Google Sheets credentials issue\n\n"
-                "Check the terminal logs for the specific error."
+                "Check the Pipeline Log expander below for the specific error."
             )
 
     st.divider()
@@ -544,7 +557,7 @@ def _run_and_display(query_str: str, dry: bool) -> None:
         return f"background-color: {c.get(val, '')}"
 
     st.dataframe(
-        df.style.applymap(_color_row, subset=["Verdict"]),
+        df.style.map(_color_row, subset=["Verdict"]),  # FIX: applymap → map (pandas 2.1+)
         width='stretch',
         hide_index=True,
     )
@@ -557,20 +570,18 @@ def _run_and_display(query_str: str, dry: bool) -> None:
     for i, r in enumerate(sorted(results, key=lambda x: sort_order.get(x.get("verdict", "COLD"), 2))):
         render_result_card(r, i)
 
-    # Live log viewer
+    # Live log viewer — reads from in-memory buffer (Streamlit Cloud safe)
     st.divider()
     with st.expander("📋 Pipeline Log (last run)", expanded=False):
-        try:
-            if os.path.exists("ott_lead_gen.log"):
-                with open("ott_lead_gen.log", encoding="utf-8") as f:
-                    lines = f.readlines()
-                # Show last 150 lines
-                recent = "".join(lines[-150:])
-                st.code(recent, language=None)
+        log_stream = st.session_state.get("log_stream")
+        if log_stream:
+            log_contents = log_stream.getvalue()
+            if log_contents:
+                st.code(log_contents[-12000:], language=None)
             else:
-                st.caption("Log file not found — run the pipeline first.")
-        except Exception as exc:
-            st.caption(f"Could not read log: {exc}")
+                st.caption("No log output captured for this run.")
+        else:
+            st.caption("Log stream not initialised — refresh the page and try again.")
 
     _append_to_history({
         "timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
