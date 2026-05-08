@@ -16,3 +16,6 @@ requests>=2.31.0
 
 # Environment variables
 python-dotenv>=1.0.0
+
+# Exa — LinkedIn post intelligence
+exa-py>=1.0.0
