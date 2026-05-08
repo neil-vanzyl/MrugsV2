@@ -1,0 +1,146 @@
+[
+  {
+    "brand": "Flicks",
+    "implementation": "Accedo designed a bespoke application interface for an entertainment hub with a simplistic style, supported by a robust quality assurance team to deliver an exceptional mobile app [1].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, QA"
+  },
+  {
+    "brand": "Vida",
+    "implementation": "Collaborated on digital product development to launch a healthcare and digital insurance hybrid app specifically tailored to the local Asian market [2].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development"
+  },
+  {
+    "brand": "Freeview",
+    "implementation": "Completely redesigned the Freeview app to enhance the usability of their HbbTV product and refine content discovery mechanisms for Australian free-to-air channels [3].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design"
+  },
+  {
+    "brand": "Neon",
+    "implementation": "Acted as the front-end lead in UX and UI to develop a fresh, updated interface for the merger of the Lightbox platform with Neon, and provided ongoing product growth support [4].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development"
+  },
+  {
+    "brand": "Les Mills Releases",
+    "implementation": "Conducted extensive research to identify and streamline journeys, creating a seamless and intuitive app interface for fitness instructors to learn and teach classes [5].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design"
+  },
+  {
+    "brand": "SBS",
+    "implementation": "Implemented UX recommendations across web, mobile, and Connected TV platforms to ensure seamless navigation, delivering a scalable solution to dynamically deploy new languages [6].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design"
+  },
+  {
+    "brand": "ABC iView",
+    "implementation": "Designed, built, and tested a range of internet TV catch-up applications for international markets, including iOS, Android, and Foxtel set-top boxes [7].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development, QA"
+  },
+  {
+    "brand": "Telkomsel (MaxStream)",
+    "implementation": "Delivered flexible and robust solutions enhancing usability and engagement through a blend of QA, Engineering, and Design [8]. Additionally, resolved a CDN bandwidth bottleneck during the World Cup by increasing CSN capacity and redirecting users to offshore CDNs to avoid dropping customers [9].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Engineering, QA, Support & Maintenance"
+  },
+  {
+    "brand": "Les Mills Virtual",
+    "implementation": "Crafted an innovative app enabling digital fitness clubs to schedule and deliver immersive virtual classes without an instructor during off-peak hours [10].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development"
+  },
+  {
+    "brand": "Spark Sport",
+    "implementation": "Delivered Big Screen applications across multiple platforms (Samsung, LG, Panasonic, Android TV, etc.) featuring Live, On Demand, and Pay Per View capabilities for the 2019 Rugby World Cup [11].",
+    "accedo_product_used": "Accedo Build Product Framework [11]",
+    "key_business_driver": "Development"
+  },
+  {
+    "brand": "Black Tie Digital",
+    "implementation": "Provided product and UX strategy for a crypto real estate platform through discovery workshops to ensure seamless, secure experiences for buyers and sellers [12].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design"
+  },
+  {
+    "brand": "Sky TV",
+    "implementation": "Overhauled the primary e-commerce website to create a premium web discovery experience, which included UX strategy, UI design, customer data analysis, and developer handover [13].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design"
+  },
+  {
+    "brand": "Hewlett Packard Enterprise",
+    "implementation": "Supported HP in delivering next-generation user and video experiences across key digital touch points to drive scalable innovation [14].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development"
+  },
+  {
+    "brand": "NBC Sports",
+    "implementation": "Built a bespoke framework solution to distribute multi-platform live streaming sports coverage across devices including Roku, HTML/JS platforms, gaming consoles, and Smart TVs [15].",
+    "accedo_product_used": "Accedo framework solution [15]",
+    "key_business_driver": "Development"
+  },
+  {
+    "brand": "STARZ",
+    "implementation": "Deployed a multi-device OTT service featuring highly performing and feature-rich applications for iPhone, iPad, and Apple TV [16].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Development"
+  },
+  {
+    "brand": "Sensical",
+    "implementation": "Designed and implemented a free AVOD kids streaming service featuring unique parental controls, custom ad UI, and an innovative kid-safe TikTok vertical feed integration [17].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development"
+  },
+  {
+    "brand": "Bell Media",
+    "implementation": "Redefined multi-brand user experiences across sports, entertainment, and news verticals, connecting users to video and information apps across popular devices [18].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Design, Development"
+  },
+  {
+    "brand": "MasterClass",
+    "implementation": "Expanded the online education platform's reach to new CTV devices globally, delivering a consistent Quality of Experience and enhancing performance on low-end set-up-boxes [19].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Development"
+  },
+  {
+    "brand": "Showtime",
+    "implementation": "Refreshed video streaming channels on Roku and other Connected Devices, while supporting Android development via a team augmentation model [20].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Development, Support & Maintenance"
+  },
+  {
+    "brand": "CBC Radio-Canada",
+    "implementation": "Upgraded streaming services with ad-supported and premium tiers for Olympics coverage, leveraging Google IMA and DAI for live and VOD pre-rolls and mid-rolls [21].",
+    "accedo_product_used": "Accedo Build [21]",
+    "key_business_driver": "Development"
+  },
+  {
+    "brand": "FloSports",
+    "implementation": "Expanded Smart TV presence on Samsung, LG, and Vizio utilizing agile development, UX design, backend support for purchase flows, QA testing, and post-launch maintenance [22].",
+    "accedo_product_used": "Accedo Build Framework [22]",
+    "key_business_driver": "Development, Design, QA, Support & Maintenance"
+  },
+  {
+    "brand": "ASTRO",
+    "implementation": "Resolved a middleware logging system bottleneck during live event preparation, increasing RPM performance from 1.3K to 100K to handle expected World Cup traffic [23].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Support & Maintenance"
+  },
+  {
+    "brand": "SonyLIV",
+    "implementation": "Investigated and provided an immediate quick fix for a service crash during live World Cup matches, followed by a permanent platform stabilization fix supporting up to 70 million users [24].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Support & Maintenance"
+  },
+  {
+    "brand": "Deutsche Telekom",
+    "implementation": "Provided a custom live event support and monitoring model with on-standby developers to ensure a smooth launch and avoid outages for VOD and 360-degree VR live concert streams [25].",
+    "accedo_product_used": "Not mentioned",
+    "key_business_driver": "Support & Maintenance"
+  }
+]

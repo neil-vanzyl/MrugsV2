@@ -1,0 +1,18 @@
+# OTT Lead Gen — Frontier Edition
+# pip install -r requirements.txt
+
+# xAI / Grok (OpenAI-compatible)
+openai>=1.30.0
+
+# Anthropic / Claude
+anthropic>=0.40.0
+
+# Google Sheets
+gspread>=6.0.0
+google-auth>=2.28.0
+
+# HTTP (Jina reader, Apollo, optional enrichment)
+requests>=2.31.0
+
+# Environment variables
+python-dotenv>=1.0.0
