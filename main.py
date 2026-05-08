@@ -134,10 +134,15 @@ def process_prospect(
             vis_li.get("linkedin_posts_found") or
             ops_li.get("linkedin_posts_found")
         )
-        if result["exa_enriched"]:
+        if vis_li.get("linkedin_posts_found") or ops_li.get("linkedin_posts_found"):
+            result["exa_enriched"] = "found"
             logger.info(f"  Exa: LinkedIn intel found for '{company}'")
+        elif vis_li or ops_li:
+            result["exa_enriched"] = "ran"
+            logger.info(f"  Exa: ran for '{company}' but no posts found in last 90 days")
         else:
-            logger.debug(f"  Exa: no LinkedIn posts found for '{company}'")
+            result["exa_enriched"] = False
+            logger.debug(f"  Exa: skipped for '{company}' (no exec name or key not set)")
 
     except Exception as exc:
         logger.warning(
@@ -158,9 +163,22 @@ def process_prospect(
         result["error"] = f"Analyst: {exc}"
         return result
 
-    result["refined_score"] = analyst.get("refined_score")
-    result["verdict"]       = analyst.get("verdict")
-    result["analyst"]       = analyst
+    score = result["refined_score"]
+    if score is not None:
+        if score >= 70:
+            enforced_verdict = "HOT"
+        elif score >= 50:
+            enforced_verdict = "WARM"
+        else:
+            enforced_verdict = "COLD"
+
+        if enforced_verdict != result["verdict"]:
+            logger.warning(
+                f"  Analyst verdict override for '{company}': "
+                f"Claude said {result['verdict']} but score={score} → forcing {enforced_verdict}"
+            )
+            result["verdict"] = enforced_verdict
+            analyst["verdict"] = enforced_verdict
 
     # Route based on verdict directly — not write_to_sheet alone
     # (write_to_sheet can be unreliable if Claude slightly deviates from schema)

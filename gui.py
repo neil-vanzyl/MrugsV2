@@ -544,7 +544,7 @@ def _run_and_display(query_str: str, dry: bool) -> None:
             "Score":    r.get("refined_score", "?"),
             "Verdict":  r.get("verdict", "?"),
             "Tab":      "❄️ Cold" if r.get("verdict") == "COLD" else "🔥 Hot",
-            "Exa":      "✓" if r.get("exa_enriched") else "—",
+            "Exa": "✓" if r.get("exa_enriched") == "found" else ("~" if r.get("exa_enriched") == "ran" else "—"),
             "Apollo":   "✓" if r.get("apollo_active") and config.APOLLO_ENABLED else "—",
             "Written":  "✅" if r.get("rows_written", 0) > 0 else ("🔍" if dry else "—"),
             "Type":     p.get("opportunity_type", ""),
