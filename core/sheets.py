@@ -49,8 +49,16 @@ class SheetsClient:
         if os.path.exists(sa_path):
             creds = Credentials.from_service_account_file(sa_path, scopes=SCOPES)
         else:
+            sa_info = None
+        try:
+            import streamlit as st
+            if "GOOGLE_SERVICE_ACCOUNT" in st.secrets:
+                sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+        except Exception:
+            pass
+        if sa_info is None:
             sa_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "{}"))
-            creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+        creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
         gc = gspread.authorize(creds)
         try:
             self._ss = gc.open(config.GOOGLE_SHEET_NAME)
