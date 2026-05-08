@@ -163,6 +163,10 @@ def process_prospect(
         result["error"] = f"Analyst: {exc}"
         return result
 
+    result["refined_score"] = analyst.get("refined_score")
+    result["verdict"]       = analyst.get("verdict")
+    result["analyst"]       = analyst
+
     score = result["refined_score"]
     if score is not None:
         if score >= 70:
@@ -182,8 +186,9 @@ def process_prospect(
 
     # Route based on verdict directly — not write_to_sheet alone
     # (write_to_sheet can be unreliable if Claude slightly deviates from schema)
-    verdict  = analyst.get("verdict", "COLD")
-    is_cold  = verdict == "COLD"
+    verdict = result["verdict"] or "COLD"
+    is_cold = verdict == "COLD"
+
 
     if is_cold:
         logger.info(
@@ -300,7 +305,6 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
         f"Exa={'ON' if config.EXA_ENABLED else 'OFF'}"
     )
 
-    usage   = RunUsage(query)
     usage   = RunUsage(query)
     sheets  = SheetsClient()
     summary = []
