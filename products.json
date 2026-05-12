@@ -1,52 +1,84 @@
+
 [
   {
-    "ProductName": "Accedo Control [1]",
-    "CoreValueProposition": "Real-time app configuration management across all screens, providing full control of the user experience without needing to touch the code [1, 2].",
+    "ProductName": "Accedo Build",
+    "CoreValueProposition": "A highly flexible, modular application framework specifically designed for constructing premium multi-screen video experiences. Allows engineering teams to accelerate development time while retaining the freedom to create customized, branded, and differentiated user experiences across varied device ecosystems.",
     "AdvancedFeaturesAndFunctionality": [
-      "Remote configuration and localized text updates [2]",
-      "Previewing and whitelisting in controlled environments [2]",
-      "Audience segmentation and multivariate A/B testing [2, 3]",
-      "Team management and administrative roles with defined Security Groups [4]",
-      "Consumption (Read) and Management (Write) APIs for integrating with custom business workflows [5]"
+      "Build once, deploy to many — cross-platform CTV framework",
+      "Modular, extensible, JavaScript-based architecture via Accedo Build XDK",
+      "Well-architected device abstraction layer",
+      "Input controls and focus management for 10-foot UI",
+      "Native player integration and local storage capabilities",
+      "Fully decoupled responsive UI layer for efficient maintenance",
+      "Native sports framework variant (Accedo Build for Sports) with real-time live stats, live chat, betting integrations, PPV, and social interactivity"
     ],
-    "PlatformReach": "Orchestrates client applications across all screens [1, 6]"
+    "PlatformReach": "Consoles: PS4, PS5, Xbox One, Xbox Series S/X. CTVs: LG webOS, Samsung Tizen, Amazon FireTV, Android TV, Vizio, Hisense, Panasonic, Sharp, Toshiba, Opera TV. Set-Top Boxes: Xfinity X1, Sky, Freeview, Foxxum, TiVo, Vewd, YouView. Mobile: iOS, Android. Web.",
+    "ProofPoints": [
+      "NBC Sports: multi-platform live streaming across Roku, HTML/JS, gaming consoles, Smart TVs",
+      "Spark Sport: Big Screen apps across Samsung, LG, Panasonic, Android TV for 2019 Rugby World Cup (Live, VOD, PPV)",
+      "CBC Radio-Canada: Olympic coverage with SSAI ad tiers (Google IMA + DAI)",
+      "FloSports: Samsung, LG, Vizio Smart TV expansion with native in-app subscription purchases",
+      "Bell Media: multi-brand UX across sports, entertainment, news on CTV devices"
+    ],
+    "SalesHook": "Get to market within 12 weeks across multiple platforms without sacrificing quality or brand consistency."
   },
   {
-    "ProductName": "Accedo Build XDK [7, 8]",
-    "CoreValueProposition": "A Cross-platform Development Kit (XDK) that abstracts connected TV (CTV) applications from underlying devices, enabling a 'build once, deploy to many' approach for faster time-to-market [8, 9].",
+    "ProductName": "Accedo Control",
+    "CoreValueProposition": "A powerful, cloud-based application management platform and SDK suite that allows editorial and operations teams to manage their OTT apps dynamically — real-time updates to metadata, UI layouts, and application behavior without pushing full app updates through certification and app store resubmission.",
     "AdvancedFeaturesAndFunctionality": [
-      "Modular, extensible, JavaScript-based architecture [8]",
-      "Well-architected device abstraction layer [10]",
-      "Input controls and focus management [10]",
-      "Native player integration and local storage capabilities [10]",
-      "Fully decoupled responsive UI layer for efficient maintenance [10]"
+      "Remote configuration and localized text updates without code changes",
+      "Previewing and whitelisting in controlled environments",
+      "Audience segmentation and multivariate A/B testing",
+      "Team management and administrative roles with defined Security Groups",
+      "Consumption (Read) and Management (Write) APIs for integrating with custom business workflows"
     ],
-    "PlatformReach": "Consoles: PS4, PS5, Xbox One, Xbox Series S/X [11]. CTVs: LG webOS, Tizen, Amazon FireTV, AndroidTV, Vizio, Hisense, Panasonic, Sharp, Toshiba, Opera TV [11, 12]. Set-Top Boxes: Xfinity X1, Sky, Freeview, Foxxum, TiVo, Vewd, YouView [11]."
+    "PlatformReach": "Orchestrates client applications across all screens.",
+    "ProofPoints": [
+      "Deployed alongside Accedo Build for M&A platform unification scenarios",
+      "Used for rapid UI iteration and localisation without store resubmission cycles"
+    ],
+    "SalesHook": "Full control of your user experience across every screen without touching the code."
   },
   {
-    "ProductName": "Accedo Build for Sports [13, 14]",
-    "CoreValueProposition": "A native sports framework designed to fast-track the launch of premium, bespoke sports applications focused on boosting engagement through social interactivity [14, 15].",
+    "ProductName": "Accedo Compose",
+    "CoreValueProposition": "An AI-native orchestration platform purpose-built for OTT streaming services to stabilize quality, combat churn, and enable real-time innovation. Can be layered onto an existing tech stack via flexible APIs and connectors.",
     "AdvancedFeaturesAndFunctionality": [
-      "Real-time live stats and scores via customizable widgets [13, 16]",
-      "In-video live chat, influencer chat, and personal chat rooms [17, 18]",
-      "Optimized 10-foot user experience (easy navigation, discoverability, personalization) [19]",
-      "Betting integrations [16]",
-      "Multiscreen live channels, virtual channels, and custom video players [20]",
-      "Integrated e-commerce, OTT ticket purchases, and membership upsells [21]"
+      "AI-native architecture powered by intelligent agents that learn, adapt, and make autonomous decisions",
+      "Data-first unification layer pulling real-time data from CDNs, devices, analytics, CRM, and billing",
+      "Modular impact agent marketplace for rapid deployment of pre-built workflows",
+      "Predictive monitoring with automated P2P streaming fallback and CDN failover",
+      "Predictive churn intelligence and personalized retention actions",
+      "Real-time dynamic UI personalization and curated content assembly"
     ],
-    "PlatformReach": "Multi-platform support across all major OTT platforms [14, 15]"
+    "PlatformReach": "Battle-tested to deploy across millions of devices. Layerable onto Accedo Assemble platform or any existing tech stack via APIs and connectors.",
+    "ProofPoints": [
+      "SonyLIV: platform stabilisation under 70 million concurrent users during live World Cup",
+      "ASTRO: RPM fix from 1.3K to 100K before World Cup",
+      "Telkomsel: CDN crisis resolution during World Cup"
+    ],
+    "SalesHook": "Predictive monitoring and AI-driven churn intelligence — stabilize quality before the crisis hits."
   },
   {
-    "ProductName": "Accedo Compose [22, 23]",
-    "CoreValueProposition": "An AI-native orchestration platform purpose-built for OTT streaming services to stabilize quality, combat churn, and enable real-time innovation [23, 24].",
+    "ProductName": "Accedo Professional Services / Custom Delivery",
+    "CoreValueProposition": "End-to-end custom application development for enterprise clients with highly complex, bespoke requirements. Accedo provides full-stack front-end and back-end integration expertise delivered via battle-tested Agile Scrum methodology.",
     "AdvancedFeaturesAndFunctionality": [
-      "AI-native architecture powered by intelligent agents that learn, adapt, and make autonomous decisions [25]",
-      "Data-first unification layer pulling real-time data from CDNs, devices, analytics, CRM, and billing [26]",
-      "Modular impact agent marketplace for rapid deployment of pre-built workflows [25, 26]",
-      "Predictive monitoring with automated P2P streaming fallback and CDN failover [27, 28]",
-      "Predictive churn intelligence and personalized retention actions [29]",
-      "Real-time dynamic UI personalization and curated content assembly [30]"
+      "End-to-end OTT application development across all major platforms",
+      "Deep expertise in 10-foot UI design and D-pad navigation for TV platforms",
+      "Proven delivery of high-performance video playback integrations",
+      "Middleware and backend integration expertise",
+      "Platform certification experience (Roku, Apple, Google, Samsung, etc.)",
+      "Dedicated QA and certification teams with deep platform knowledge",
+      "SSAI integration, DRM implementation, live and sports streaming architecture",
+      "2-week Agile sprints with transparent milestones and regular client demos"
     ],
-    "PlatformReach": "Can be layered onto the Accedo Assemble platform or added to an existing tech stack via flexible APIs and connectors [31]. It is battle-tested to deploy across millions of devices [32]."
+    "PlatformReach": "All major OTT platforms: Roku, iOS/tvOS, Android/Android TV, Samsung Tizen, LG webOS, VIZIO, Xbox, PlayStation, Fire TV, Apple TV, Chromecast, X1, and more.",
+    "ProofPoints": [
+      "Paramount+: global optimization and scaling across multiple platforms",
+      "NBC Universal & NBC Sports: custom development for millions of concurrent sports viewers",
+      "Cogeco & CBC: white-glove bespoke native application development for high-volume Canadian audiences",
+      "Deutsche Telekom: custom live event support model with standby developers for VOD and 360° VR streams",
+      "Showtime: ongoing Android team augmentation model"
+    ],
+    "SalesHook": "20 years of OTT delivery expertise — from hundreds to millions of concurrent viewers, we scale with you."
   }
 ]
