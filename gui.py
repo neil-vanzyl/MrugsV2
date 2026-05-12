@@ -18,6 +18,7 @@ import streamlit as st
 import pandas as pd
 import main
 import config
+import random
 from utils.helpers import setup_logging
 from utils.usage_tracker import load_usage_history
 from datetime import datetime
@@ -25,6 +26,14 @@ from datetime import datetime
 # Setup logging once at import
 setup_logging(level=logging.INFO)
 
+
+# load random prompts
+def _load_suggested_prompts() -> list:
+    try:
+        with open("suggested_prompts.txt", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    except FileNotFoundError:
+        return ["Regional sports broadcaster migrating from ViewLift 2026"]
 # ---------------------------------------------------------------------------
 # In-memory log capture (Streamlit Cloud safe — no filesystem dependency)
 # ---------------------------------------------------------------------------
@@ -445,8 +454,13 @@ st.markdown(
 )
 st.divider()
 
+if suggest_btn:
+    prompts = _load_suggested_prompts()
+    st.session_state["suggested_prompt"] = random.choice(prompts)
+
 query = st.text_input(
     "Discovery Scope",
+    value=st.session_state.get("suggested_prompt", ""),
     placeholder="e.g., Regional sports networks migrating from ViewLift 2025...",
     help=(
         "Describe the OTT pain signal or company type to hunt for. "
@@ -464,10 +478,10 @@ with btn_col1:
         disabled=not query,
     )
 with btn_col2:
-    rotate_btn = st.button(
-        "🔄 Rotate Queries",
-        use_container_width=True,
-        help="Run all built-in signal queries sequentially",
+    suggest_btn = st.button(
+    "💡 Suggest Prompt",
+    use_container_width=True,
+    help="Pre-fill the search box with a randomly selected lead generation prompt",
     )
 
 
@@ -602,12 +616,9 @@ def _run_and_display(query_str: str, dry: bool) -> None:
 if run_btn:
     _run_and_display(query, is_dry_run)
 
-elif rotate_btn:
-    queries = config.OTT_SIGNAL_QUERIES
-    st.info(f"Running {len(queries)} signal queries sequentially…")
-    for i, q in enumerate(queries, 1):
-        st.markdown(f"---\n**Query {i}/{len(queries)}:** `{q[:80]}`")
-        _run_and_display(q, is_dry_run)
+elif suggest_btn:
+    pass
+
 
 # ---------------------------------------------------------------------------
 # Footer
