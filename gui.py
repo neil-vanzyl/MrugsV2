@@ -454,6 +454,20 @@ st.markdown(
 )
 st.divider()
 
+btn_col1, btn_col2 = st.columns([3, 1])
+run_btn = st.button(
+    "🚀 Start Research Waterfall",
+    type="primary",
+    use_container_width=True,
+    disabled=not st.session_state.get("suggested_prompt", ""),
+    )
+with btn_col2:
+    suggest_btn = st.button(
+        "💡 Suggest Prompt",
+        use_container_width=True,
+        help="Pre-fill the search box with a randomly selected lead generation prompt",
+    )
+
 if suggest_btn:
     prompts = _load_suggested_prompts()
     st.session_state["suggested_prompt"] = random.choice(prompts)
@@ -468,21 +482,6 @@ query = st.text_input(
         "app stores, and industry press."
     ),
 )
-
-btn_col1, btn_col2 = st.columns([3, 1])
-with btn_col1:
-    run_btn = st.button(
-        "🚀 Start Research Waterfall",
-        type="primary",
-        use_container_width=True,
-        disabled=not query,
-    )
-with btn_col2:
-    suggest_btn = st.button(
-    "💡 Suggest Prompt",
-    use_container_width=True,
-    help="Pre-fill the search box with a randomly selected lead generation prompt",
-    )
 
 
 # ---------------------------------------------------------------------------
