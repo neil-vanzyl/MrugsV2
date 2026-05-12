@@ -454,13 +454,8 @@ st.markdown(
 )
 st.divider()
 
+# Suggest prompt button alone at top right
 btn_col1, btn_col2 = st.columns([3, 1])
-run_btn = st.button(
-    "🚀 Start Research Waterfall",
-    type="primary",
-    use_container_width=True,
-    disabled=not st.session_state.get("suggested_prompt", ""),
-    )
 with btn_col2:
     suggest_btn = st.button(
         "💡 Suggest Prompt",
@@ -475,12 +470,19 @@ if suggest_btn:
 query = st.text_input(
     "Discovery Scope",
     value=st.session_state.get("suggested_prompt", ""),
-    placeholder="e.g., Regional sports networks migrating from ViewLift 2025...",
+    placeholder="e.g., Regional sports networks migrating from ViewLift 2026...",
     help=(
         "Describe the OTT pain signal or company type to hunt for. "
         "Grok will autonomously search SEC filings, job boards, "
         "app stores, and industry press."
     ),
+)
+
+# Run button below the text input
+run_btn = st.button(
+    "🚀 Start Research Waterfall",
+    type="primary",
+    use_container_width=True,
 )
 
 
@@ -613,7 +615,10 @@ def _run_and_display(query_str: str, dry: bool) -> None:
 
 
 if run_btn:
-    _run_and_display(query, is_dry_run)
+    if not query:
+        st.warning("Please enter a discovery scope or click 💡 Suggest Prompt first.")
+    else:
+        _run_and_display(query, is_dry_run)
 
 elif suggest_btn:
     pass
