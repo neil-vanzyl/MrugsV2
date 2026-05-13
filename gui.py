@@ -714,8 +714,28 @@ def _run_and_display(query_str: str, dry: bool) -> None:
             st.exception(exc)
             return
 
-    if not results:
-        st.warning("⚠️ Grok found no prospects. Try a different discovery scope. Please send logs to administrator")
+    if not results or (len(results) == 1 and not results[0].get("company")):
+        # Store discovery meta for error messaging even on empty results
+        stub = results[0] if results else {}
+        discovery_meta = stub.get("discovery_meta", {})
+        st.session_state["last_discovery_meta"] = discovery_meta
+
+        if discovery_meta.get("discovery_ran") and not discovery_meta.get("selected"):
+            st.warning(
+                "⚠️ Discovery ran but Gemini found no companies worth researching. "
+                "Try rephrasing — e.g. use company category keywords rather than "
+                "product format names."
+            )
+        elif discovery_meta.get("discovery_ran") and discovery_meta.get("selected"):
+            st.warning(
+                "⚠️ Gemini selected companies but Grok found no qualifying prospects. "
+                "The companies may be too early-stage or outside Grok's search coverage."
+            )
+        else:
+            st.warning(
+                "⚠️ No prospects found. Try a different discovery scope or use "
+                "💡 Suggest Prompt for a pre-tested query."
+            )
         return
 
     hot     = sum(1 for r in results if r.get("verdict") == "HOT")

@@ -21,7 +21,7 @@ from tools.gemini import translate_query, score_companies
 
 logger = logging.getLogger("ott_lead_gen.discovery")
 
-MIN_COMPANIES_FOR_SCORING = 5  # below this, skip Gemini scoring
+MIN_COMPANIES_FOR_SCORING = 3  # below this, skip Gemini scoring
 TARGET_COMPANY_COUNT = 10      # how many Exa aims to find
 
 

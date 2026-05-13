@@ -451,11 +451,17 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
             all_prospects = []
             for name in company_names:
                 named_query = (
-                    f"{name} OTT streaming platform 2024 2025 2026 — research their "
-                    f"technology infrastructure, OEM platform strategy, SSAI/DRM "
-                    f"implementation, recent acquisitions, sports rights deals, app store "
-                    f"ratings, engineering job postings, and incumbent vendor. "
-                    f"Return intelligence specifically about {name}."
+                    f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
+                    f"ORIGINAL DISCOVERY CONTEXT: {query}\n\n"
+                    f"Based on that context, research whichever is most relevant:\n"
+                    f"- If they have an existing OTT platform: technology infrastructure, "
+                    f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
+                    f"- If they are pre-platform or mobile-only: content strategy, social "
+                    f"audience size, funding history, current distribution platforms, "
+                    f"CTV ambition signals, platform expansion announcements\n\n"
+                    f"Return intelligence specifically about {name}, not similar companies. "
+                    f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst) "
+                    f"based on what you find."
                 )
                 grok_result = run_research_waterfall(named_query, usage_tracker=usage)
                 all_prospects.extend(grok_result.get("prospects", []))
@@ -497,7 +503,8 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
 
     if not prospects:
         logger.warning("Grok returned no prospects. Try a broader query.")
-        return []
+        return [{"error": None, "company": "", "domain": "", 
+                 "discovery_meta": discovery_meta}]
 
     if top_recommendation:
         logger.info(f"\n★ TOP PICK: {str(top_recommendation)[:200]}\n")
