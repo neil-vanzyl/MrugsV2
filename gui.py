@@ -51,7 +51,7 @@ if "log_stream" not in st.session_state:
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="Accedo Lead Scout",
-    page_icon="🎯",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -348,39 +348,197 @@ def render_result_card(r: dict, card_idx: int) -> None:
                 st.markdown("**📋 Salesforce Note**")
                 st.code(note, language=None)
 
+# ---------------------------------------------------------------------------
+# Run history card
+# ---------------------------------------------------------------------------
 
+def render_history_card(row: dict) -> None:
+    """
+    Render a truncated intelligence card from a Sheets row.
+    Shows whatever data is available — no pipeline dict required.
+    """
+    company  = row.get("Company", "Unknown")
+    score    = row.get("Opportunity Score", "").replace("/100", "")
+    verdict  = row.get("Priority", "")
+    tab      = row.get("_tab", "")
+    domain   = row.get("Domain", "")
+    ts       = row.get("Timestamp", "")
+    is_cold  = tab == "Cold Leads"
+
+    st.markdown(f"### {'❄️' if is_cold else '🔥'} {company}")
+    st.caption(f"{domain} · {ts} · {tab}")
+
+    h1, h2, h3 = st.columns([2, 2, 2])
+    with h1:
+        st.markdown("**Opportunity Score**")
+        try:
+            st.markdown(_score_bar_html(int(score)), unsafe_allow_html=True)
+        except Exception:
+            st.caption(score or "—")
+    with h2:
+        st.markdown("**Verdict**")
+        verdict_map = {"Critical": "HOT", "High": "HOT", "Med": "WARM", "Low": "COLD"}
+        v = verdict_map.get(verdict, verdict)
+        st.markdown(_verdict_chip(v), unsafe_allow_html=True)
+    with h3:
+        st.markdown("**Tab**")
+        st.markdown("❄️ Cold Leads" if is_cold else "🔥 Leads")
+
+    st.divider()
+
+    t_intel, t_emails, t_obj = st.tabs([
+        "🧠 Intelligence", "✉️ Outreach Emails", "🛡️ Objection Counters"
+    ])
+
+    with t_intel:
+        ic1, ic2 = st.columns(2)
+        with ic1:
+            inflection = row.get("Causal Inflection", "")
+            if inflection:
+                st.markdown("**Causal Inflection**")
+                st.write(inflection)
+            gap = row.get("Transition Gap", "")
+            if gap:
+                st.markdown("**Transition Gap**")
+                st.info(gap)
+            opp_type = row.get("Opportunity Type", "")
+            if opp_type:
+                st.markdown("**Opportunity Type**")
+                st.caption(opp_type)
+            signal = row.get("Top Signal", "")
+            if signal:
+                st.markdown("**Top Signal**")
+                conf = row.get("Signal Confidence", "")
+                icon = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(conf, "⚪")
+                src = row.get("Signal Source", "")
+                src_md = f" · [source]({src})" if src and src.startswith("http") else (f" · {src}" if src else "")
+                st.markdown(f"{icon} {signal[:250]}{src_md}")
+
+        with ic2:
+            st.markdown("**👤 Visionary**")
+            vis_name = row.get("Visionary Name", "")
+            vis_title = row.get("Visionary Title", "")
+            vis_li = row.get("Visionary LinkedIn", "")
+            vis_hook = row.get("Visionary Hook", "")
+            if vis_name:
+                nm = f"[{vis_name}]({vis_li})" if vis_li else vis_name
+                st.markdown(f"{nm} — *{vis_title}*")
+                if vis_hook:
+                    st.info(f"Hook: {vis_hook}")
+            else:
+                st.caption("Not identified")
+
+            st.markdown("**⚙️ Operator**")
+            ops_name = row.get("Operator Name", "")
+            ops_title = row.get("Operator Title", "")
+            ops_li = row.get("Operator LinkedIn", "")
+            ops_hook = row.get("Operator Hook", "")
+            if ops_name:
+                nm = f"[{ops_name}]({ops_li})" if ops_li else ops_name
+                st.markdown(f"{nm} — *{ops_title}*")
+                if ops_hook:
+                    st.info(f"Hook: {ops_hook}")
+            else:
+                st.caption("Not identified")
+
+            apollo_name = row.get("Apollo Contact Name", "")
+            apollo_title = row.get("Apollo Contact Title", "")
+            apollo_email = row.get("Apollo Email", "")
+            apollo_li = row.get("Apollo LinkedIn", "")
+            if apollo_name:
+                st.markdown("**🔗 Apollo Contact**")
+                st.markdown(f"{apollo_name} — *{apollo_title}*")
+                if apollo_email:
+                    st.caption(f"✉️ {apollo_email}")
+                if apollo_li:
+                    st.caption(f"[LinkedIn]({apollo_li})")
+
+    with t_emails:
+        ec1, ec2 = st.columns(2)
+        with ec1:
+            st.markdown(f"**✉️ To: {vis_name or 'Visionary'}**")
+            vis_subj = row.get("Visionary Subject Line", "")
+            vis_body = row.get("Visionary Email", "")
+            if vis_subj:
+                st.markdown(
+                    f'<div style="background:#f0f4ff;border-left:3px solid #4a6fa5;'
+                    f'padding:6px 10px;border-radius:4px;margin-bottom:8px;font-size:0.9em">'
+                    f'<strong>Subject:</strong> {vis_subj}</div>',
+                    unsafe_allow_html=True,
+                )
+            if vis_body:
+                st.text_area("vis_hist_body", value=vis_body, height=230,
+                             key=f"hist_vis_{company}", label_visibility="collapsed")
+            else:
+                st.caption("No draft available.")
+
+        with ec2:
+            st.markdown(f"**✉️ To: {ops_name or 'Operator'}**")
+            ops_subj = row.get("Operator Subject Line", "")
+            ops_body = row.get("Operator Email", "")
+            if ops_subj:
+                st.markdown(
+                    f'<div style="background:#f0fff4;border-left:3px solid #28a745;'
+                    f'padding:6px 10px;border-radius:4px;margin-bottom:8px;font-size:0.9em">'
+                    f'<strong>Subject:</strong> {ops_subj}</div>',
+                    unsafe_allow_html=True,
+                )
+            if ops_body:
+                st.text_area("ops_hist_body", value=ops_body, height=230,
+                             key=f"hist_ops_{company}", label_visibility="collapsed")
+            else:
+                st.caption("No draft available.")
+
+    with t_obj:
+        obj_inhouse = row.get("Objection: In-House", "")
+        obj_incumbent = row.get("Objection: Incumbent", "")
+        obj_budget = row.get("Objection: Budget", "")
+        for objection, counter in [
+            ("We're building this in-house", obj_inhouse),
+            ("We already have a vendor", obj_incumbent),
+            ("Budget / timing isn't right", obj_budget),
+        ]:
+            if counter:
+                st.markdown(f"**❓ {objection}**")
+                st.success(f"**Counter:** {counter}")
+                st.divider()
+
+        note = row.get("Salesforce Note", "")
+        if note:
+            st.markdown("**📋 Salesforce Note**")
+            st.code(note, language=None)
 # ---------------------------------------------------------------------------
 # Run history sidebar
 # ---------------------------------------------------------------------------
 
 def render_history_sidebar() -> None:
-    history = _get_history()
-    if not history:
-        st.caption("No runs yet this session.")
+    """Show 10 most recent companies from Sheets as clickable chips."""
+    try:
+        from core.sheets import SheetsClient
+        sc = SheetsClient()
+        recent = sc.get_recent_leads(max_rows=10)
+    except Exception as exc:
+        st.caption(f"Could not load history: {exc}")
         return
 
-    for run in history:
-        ts    = run.get("timestamp", "")
-        q     = run.get("query", "")[:45]
-        total = run.get("prospect_count", 0)
-        hot   = run.get("hot_count", 0)
-        warm  = run.get("warm_count", 0)
-        cold  = run.get("cold_count", 0)
-        dry   = run.get("dry_run", True)
-        written = run.get("rows_written", 0)
+    if not recent:
+        st.caption("No leads in Sheets yet.")
+        return
 
-        tag   = "🔍" if dry else "✅"
-        with st.expander(f"{tag} {ts} · {q}", expanded=False):
-            cols = st.columns(4)
-            cols[0].metric("Total", total)
-            cols[1].metric("🔥", hot)
-            cols[2].metric("🌡️", warm)
-            cols[3].metric("❄️", cold)
-            if not dry:
-                st.caption(f"{written} row(s) → Sheets")
-            companies = run.get("companies", [])
-            if companies:
-                st.dataframe(pd.DataFrame(companies), width='stretch', hide_index=True)
+    for row in recent:
+        company = row.get("Company", "Unknown")
+        score   = row.get("Opportunity Score", "").replace("/100", "")
+        tab     = row.get("_tab", "")
+        ts      = row.get("Timestamp", "")[:10]
+        is_cold = tab == "Cold Leads"
+        icon    = "❄️" if is_cold else "🔥"
+
+        label = f"{icon} {company[:22]}  ·  {score}  ·  {ts}"
+        if st.button(label, key=f"hist_{company}_{ts}", use_container_width=True):
+            st.session_state["history_view"] = row
+            st.session_state["view_mode"] = "history"
+            st.rerun()
+
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +612,7 @@ with st.sidebar:
 # Main content
 # ---------------------------------------------------------------------------
 
-st.title("🎯 Accedo Strategic Lead Scout")
+st.title("Accedo Strategic Lead Scout")
 st.markdown(
     "**Grok-4** live research · **Claude Sonnet** qualification · "
     "**Claude Opus** outreach · **Exa** LinkedIn intel · **Apollo** contact enrichment"
@@ -492,6 +650,34 @@ run_btn = st.button(
     use_container_width=True,
 )
 
+#----------
+#Handle switching between current and history view
+#----------
+
+
+def _handle_view_mode() -> bool:
+    """
+    Check if we're in history view mode.
+    Returns True if history card was rendered (caller should stop rendering run results).
+    """
+    if st.session_state.get("view_mode") == "history":
+        row = st.session_state.get("history_view", {})
+        if row:
+            # Breadcrumb
+            col1, col2 = st.columns([1, 5])
+            with col1:
+                if st.button("← Back to last run"):
+                    st.session_state["view_mode"] = "run"
+                    st.rerun()
+            with col2:
+                st.caption(
+                    f"Viewing historical record: **{row.get('Company', '')}** "
+                    f"· {row.get('Timestamp', '')}"
+                )
+            st.divider()
+            render_history_card(row)
+            return True
+    return False
 
 # ---------------------------------------------------------------------------
 # Execution + display
@@ -644,10 +830,15 @@ def _run_and_display(query_str: str, dry: bool) -> None:
     })
 
 
-if run_btn:
+# Handle history view mode 
+if _handle_view_mode():
+    pass
+
+elif run_btn:
     if not query:
         st.warning("Please enter a discovery scope or click 💡 Suggest Prompt first.")
     else:
+        st.session_state["view_mode"] = "run"
         _run_and_display(query, is_dry_run)
 
 elif suggest_btn:

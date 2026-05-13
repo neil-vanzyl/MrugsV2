@@ -266,7 +266,7 @@ class SheetsClient:
         """Write one API call audit row to the Logs worksheet."""
         self._connect()
         logger.info(f"Sheets.write_log: step={step} company={company} ws_logs={self._ws_logs is not None}")
-        
+
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         row = [
             ts,
@@ -293,6 +293,34 @@ class SheetsClient:
             )
         except Exception as exc:
             logger.error(f"Sheets: log write failed for '{company}' / {step}: {exc}")
+
+    def get_recent_leads(self, max_rows: int = 10) -> list:
+        """
+        Fetch the most recent leads across both Leads and Cold Leads tabs.
+        Returns a list of dicts sorted by Timestamp descending.
+        """
+        self._connect()
+        rows = []
+
+        for ws, tab in [(self._ws_hot, "Leads"), (self._ws_cold, "Cold Leads")]:
+            try:
+                records = ws.get_all_records()
+                for r in records:
+                    r["_tab"] = tab
+                    rows.append(r)
+            except Exception as exc:
+                logger.warning(f"Sheets: could not fetch recent leads from '{tab}': {exc}")
+
+        # Sort by Timestamp descending
+        def _parse_ts(r):
+            try:
+                from datetime import datetime
+                return datetime.strptime(r.get("Timestamp", ""), "%Y-%m-%d %H:%M UTC")
+            except Exception:
+                return datetime.min
+
+        rows.sort(key=_parse_ts, reverse=True)
+        return rows[:max_rows]
 
 def _strip_citation(value: str) -> str:
     """
