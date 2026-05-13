@@ -92,7 +92,7 @@ def _search_companies_exa(search_strings: List[str]) -> List[dict]:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def discover_companies(query: str, usage_tracker=None) -> dict:
+def discover_companies(query: str, usage_tracker=None, sheets=None, run_id: str = "") -> dict:
     """
     Run the full discovery pipeline for a user query.
 
