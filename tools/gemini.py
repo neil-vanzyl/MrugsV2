@@ -88,7 +88,7 @@ def _extract_json(raw: str):
 # Job 1 — Query translation
 # ---------------------------------------------------------------------------
 
-def translate_query(query: str) -> List[str]:
+def translate_query(query: str, usage_tracker=None) -> List[str]:
     """
     Convert a natural language query into optimised Exa search strings.
     Returns list of search strings, or empty list on failure.
@@ -98,6 +98,8 @@ def translate_query(query: str) -> List[str]:
 
     try:
         raw, tokens_in, tokens_out = _call_gemini(prompt, max_tokens=2048)
+        if usage_tracker:
+            usage_tracker.record_gemini(tokens_in, tokens_out)
         result = _extract_json(raw)
         strings = result.get("search_strings", [])
         logger.info(
@@ -114,7 +116,7 @@ def translate_query(query: str) -> List[str]:
 # Job 2 — Creative company scoring
 # ---------------------------------------------------------------------------
 
-def score_companies(companies: List[dict], query: str) -> dict:
+def score_companies(companies: List[dict], query: str, usage_tracker=None) -> dict:
     """
     Creatively score discovered companies and select top 5 for Grok research.
 
@@ -139,10 +141,13 @@ def score_companies(companies: List[dict], query: str) -> dict:
 
     try:
         raw, tokens_in, tokens_out = _call_gemini(prompt, max_tokens=2048)
+        if usage_tracker:
+            usage_tracker.record_gemini(tokens_in, tokens_out)
+        
         result = _extract_json(raw)
         selected = result.get("selected", [])[:5]
         rejected = result.get("rejected", [])
-
+        
         logger.info(
             f"Gemini: selected {len(selected)} companies for deep research, "
             f"rejected {len(rejected)}"
