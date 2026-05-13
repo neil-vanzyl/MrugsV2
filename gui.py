@@ -415,6 +415,7 @@ with st.sidebar:
     _api_status("EXA_API_KEY",            "Exa (LinkedIn)")
     _api_status("APOLLO_MASTER_API_KEY",  "Apollo Master Key (Search)")
     _api_status("APOLLO_API_KEY",         "Apollo Standard Key (Enrich)")
+    _api_status("GEMINI_API_KEY", "Gemini Flash (Discovery)")
 
     st.divider()
     st.markdown("**Run History**")
@@ -533,6 +534,29 @@ def _run_and_display(query_str: str, dry: bool) -> None:
         if usage_summary:
             render_usage_panel(usage_summary)
 
+    if results:
+        first = results[0] if results else {}
+        discovery_meta = first.get("discovery_meta", {})
+        if discovery_meta.get("discovery_ran"):
+            with st.expander(
+                f"🔍 Discovery: Exa found {len(discovery_meta.get('all_found', []))} companies "
+                f"· Gemini selected {len(discovery_meta.get('selected', []))}",
+                expanded=True,
+            ):
+                if discovery_meta.get("selected"):
+                    st.markdown("**✅ Selected for deep research**")
+                    for c in discovery_meta["selected"]:
+                        li = c.get("linkedin_url", "")
+                        name = f"[{c['name']}]({li})" if li else c["name"]
+                        st.markdown(
+                            f"**{name}** — *{c.get('signal_type', '')}*  \n"
+                            f"{c.get('reasoning', '')}"
+                        )
+                if discovery_meta.get("rejected"):
+                    st.markdown("**❌ Filtered out by Gemini**")
+                    for r in discovery_meta["rejected"]:
+                        st.caption(f"**{r.get('name')}** — {r.get('reason', '')}")
+
     if not dry:
         if written > 0:
             st.success(f"✅ {written} lead(s) written to **{config.GOOGLE_SHEET_NAME}**")
@@ -631,6 +655,7 @@ st.divider()
 st.caption(
     f"Accedo Lead Scout · "
     f"{config.GROK_SCOUT_MODEL} · "
+    f"{config.GEMINI_DISCOVERY_MODEL} discovery · "
     f"{config.CLAUDE_ANALYST_MODEL} analyst · "
     f"{config.CLAUDE_COPYWRITER_MODEL} copywriter · "
     f"Last render: {datetime.now().strftime('%H:%M:%S')}"

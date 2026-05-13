@@ -153,7 +153,9 @@ class SheetsClient:
         emails: dict,
         contact=None,
         query: str = "",
-        is_cold: bool = False  # NEW FLAG added here
+        is_cold: bool = False,  
+        exa_rejected: str = "",        
+        gemini_reasoning: str = "",
     ) -> bool:
         """
         Write a single lead row to either the HOT or COLD worksheet.
@@ -227,7 +229,7 @@ class SheetsClient:
             # Apollo enrichment (cols 36-39)
             apollo_name, apollo_title, apollo_email, apollo_linkedin,
             outreach.get("salesforce_note", ""), str(prospect.get("research_gaps", "")),
-            query, "New"
+            query, "New", exa_rejected, gemini_reasoning
         ]
 
         # Route to the correct worksheet object

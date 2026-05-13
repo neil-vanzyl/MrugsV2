@@ -47,7 +47,7 @@ from tools.grok import run_research_waterfall
 from tools.apollo import enrich_power_map, get_contacts_from_power_map
 from tools.exa import enrich_prospect_power_map
 from tools.claude_client import qualify_prospect, draft_outreach
-
+from tools.discovery import discover_companies
 
 
 
@@ -63,6 +63,8 @@ def process_prospect(
     run_id: str,
     dry_run: bool = False,
     usage: "RunUsage" = None,
+    exa_rejected: str = "",
+    gemini_reasoning: str = "",
 ) -> dict:
     """
     Run the full enrichment + qualification + write pipeline for one prospect.
@@ -342,6 +344,8 @@ def process_prospect(
             contact=primary_contact,
             query=query,
             is_cold=is_cold,
+            exa_rejected=exa_rejected,
+            gemini_reasoning=gemini_reasoning,
         )
         if written:
             result["rows_written"] = 1
@@ -395,23 +399,86 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     sheets  = SheetsClient()
     summary = []
 
+    # ------------------------------------------------------------------
+    # Stage 0 — Discovery: Gemini + Exa find companies before Grok runs
+    # ------------------------------------------------------------------
+    logger.info("Stage 0: Company Discovery (Gemini + Exa)...")
+    discovery = discover_companies(query, usage_tracker=usage)
+
+    rejected_companies = discovery.get("rejected", [])
+    exa_rejected_str = ", ".join(
+        r.get("name", "") for r in rejected_companies
+    ) if rejected_companies else ""
+
+    discovery_meta = {
+        "discovery_ran":  discovery.get("discovery_ran", False),
+        "gemini_ran":     discovery.get("gemini_ran", False),
+        "all_found":      discovery.get("all_found", []),
+        "selected":       discovery.get("selected", []),
+        "rejected":       discovery.get("rejected", []),
+        "search_strings": discovery.get("search_strings", []),
+    }
+
+    if discovery.get("discovery_ran") and discovery.get("selected"):
+        company_names = [c.get("name", "") for c in discovery["selected"] if c.get("name")]
+        gemini_reasonings = {
+            c.get("name", ""): c.get("reasoning", "")
+            for c in discovery["selected"]
+        }
+        logger.info(
+            f"Discovery: passing {len(company_names)} companies to Grok — "
+            f"{', '.join(company_names)}"
+        )
+        use_prospect_mode = True
+    else:
+        logger.info("Discovery: degrading to standard Grok waterfall")
+        company_names = []
+        gemini_reasonings = {}
+        use_prospect_mode = False
+
+    # ------------------------------------------------------------------
+    # Stage 1 — Grok research waterfall
+    # ------------------------------------------------------------------
     usage.start_prospect("_grok_research")
     t0 = time.monotonic()
-    # Step 1 — Grok research waterfall
+
     try:
-        grok_result = run_research_waterfall(query, usage_tracker=usage)
+        if use_prospect_mode and company_names:
+            # Grok researches each named company individually
+            all_prospects = []
+            for name in company_names:
+                named_query = (
+                    f"{name} OTT streaming platform 2024 2025 2026 — research their "
+                    f"technology infrastructure, OEM platform strategy, SSAI/DRM "
+                    f"implementation, recent acquisitions, sports rights deals, app store "
+                    f"ratings, engineering job postings, and incumbent vendor. "
+                    f"Return intelligence specifically about {name}."
+                )
+                grok_result = run_research_waterfall(named_query, usage_tracker=usage)
+                all_prospects.extend(grok_result.get("prospects", []))
+
+            prospects = all_prospects
+            top_recommendation = ""
+        else:
+            grok_result = run_research_waterfall(query, usage_tracker=usage)
+            prospects = grok_result.get("prospects", [])
+            top_recommendation = grok_result.get("top_recommendation", "")
+
         duration_ms = int((time.monotonic() - t0) * 1000)
-        prospects = grok_result.get("prospects", [])
         cur = usage._prospects[0] if usage._prospects else None
         sheets.write_log(
             run_id=run_id, query=query, company="—", domain="—",
             step="Grok",
             status="OK",
-            detail=f"{len(prospects)} prospect(s) returned",
+            detail=(
+                f"{len(prospects)} prospect(s) returned | "
+                f"discovery={'YES' if use_prospect_mode else 'NO'}"
+            ),
             tokens_in=cur.grok_input_tokens if cur else 0,
             tokens_out=cur.grok_output_tokens if cur else 0,
             duration_ms=duration_ms,
         )
+
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         sheets.write_log(
@@ -422,18 +489,15 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
         usage.end_prospect()
         logger.error(f"Grok waterfall failed: {exc}")
         return [{"error": str(exc), "company": "", "domain": ""}]
+
     usage.end_prospect()
 
     if not prospects:
         logger.warning("Grok returned no prospects. Try a broader query.")
-        if grok_result.get("research_gaps"):
-            logger.info(f"Research gaps: {grok_result['research_gaps']}")
         return []
 
-    if grok_result.get("top_recommendation"):
-        logger.info(
-            f"\n★ TOP PICK: {str(grok_result['top_recommendation'])[:200]}\n"
-        )
+    if top_recommendation:
+        logger.info(f"\n★ TOP PICK: {str(top_recommendation)[:200]}\n")
 
     logger.info(
         f"Grok returned {len(prospects)} prospect(s) — "
@@ -444,7 +508,16 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     for i, prospect in enumerate(prospects, 1):
         company = prospect.get("name", "?")
         logger.info(f"[{i}/{len(prospects)}] {company}")
-        result = process_prospect(prospect, sheets, query, run_id, dry_run=dry_run, usage=usage)
+
+        gemini_reasoning = gemini_reasonings.get(company, "")
+
+        result = process_prospect(
+            prospect, sheets, query, run_id,
+            dry_run=dry_run, usage=usage,
+            exa_rejected=exa_rejected_str,
+            gemini_reasoning=gemini_reasoning,
+        )
+        result["discovery_meta"] = discovery_meta
         summary.append(result)
 
     usage.finish()
