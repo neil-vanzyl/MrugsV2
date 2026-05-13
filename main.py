@@ -400,11 +400,13 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     sheets._connect()
     summary = []
 
+    usage.start_prospect("_grok_research")
+
     # ------------------------------------------------------------------
     # Stage 0 — Discovery: Gemini + Exa find companies before Grok runs
     # ------------------------------------------------------------------
     logger.info("Stage 0: Company Discovery (Gemini + Exa)...")
-    discovery = discover_companies(query, usage_tracker=usage)
+    discovery = discover_companies(query, usage_tracker=usage, sheets=sheets, run_id=run_id,)
 
     rejected_companies = discovery.get("rejected", [])
     exa_rejected_str = ", ".join(
@@ -440,7 +442,7 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     # ------------------------------------------------------------------
     # Stage 1 — Grok research waterfall
     # ------------------------------------------------------------------
-    usage.start_prospect("_grok_research")
+    
     t0 = time.monotonic()
 
     try:

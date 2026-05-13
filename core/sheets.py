@@ -265,6 +265,8 @@ class SheetsClient:
     ) -> None:
         """Write one API call audit row to the Logs worksheet."""
         self._connect()
+        logger.info(f"Sheets.write_log: step={step} company={company} ws_logs={self._ws_logs is not None}")
+        
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         row = [
             ts,
@@ -284,8 +286,13 @@ class SheetsClient:
         ]
         try:
             self._ws_logs.append_row(row, value_input_option="RAW")
+        except AttributeError:
+            logger.error(
+                f"Sheets: _ws_logs is None for '{company}' / {step} — "
+                f"_connect() may not have initialised the Logs worksheet"
+            )
         except Exception as exc:
-            logger.warning(f"Sheets: log write failed for '{company}' / {step}: {exc}")
+            logger.error(f"Sheets: log write failed for '{company}' / {step}: {exc}")
 
 def _strip_citation(value: str) -> str:
     """
