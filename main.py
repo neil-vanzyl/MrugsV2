@@ -390,7 +390,7 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     logger.info(f"{'='*65}")
     logger.info(
         f"Modules active: "
-        f"Apollo={'ON' if config.APOLLO_ENABLED else 'OFF'} | "
+        f"Apollo={'O_N' if config.APOLLO_ENABLED else 'OFF'} | "
         f"Exa={'ON' if config.EXA_ENABLED else 'OFF'}"
     )
 

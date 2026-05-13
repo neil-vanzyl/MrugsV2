@@ -57,6 +57,7 @@ GOOGLE_COLD_WORKSHEET_NAME: str = os.environ.get("GOOGLE_COLD_WORKSHEET_NAME", "
 GOOGLE_LOGS_WORKSHEET_NAME: str = os.environ.get("GOOGLE_LOGS_WORKSHEET_NAME", "Logs")
 
 GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
+
 GEMINI_DISCOVERY_MODEL: str = "gemini-3-flash-preview"
 GEMINI_DISCOVERY_MAX_TOKENS: int = 2048
 # ---------------------------------------------------------------------------

@@ -715,7 +715,7 @@ def _run_and_display(query_str: str, dry: bool) -> None:
             return
 
     if not results:
-        st.warning("⚠️ Grok found no prospects. Try a broader discovery scope.")
+        st.warning("⚠️ Grok found no prospects. Try a different discovery scope. Please send logs to administrator")
         return
 
     hot     = sum(1 for r in results if r.get("verdict") == "HOT")
