@@ -73,14 +73,21 @@ def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKE
 
 def _extract_json(raw: str):
     """Strip markdown fences and parse JSON."""
-    logger.debug(f"Gemini raw response: {text[:500]}")
+   
+    if not raw:
+        raise ValueError("Empty response from Gemini")
     text = raw.strip()
+    logger.debug(f"Gemini raw response: {text[:500]}")
+    # Strip markdown fences
     fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if fence:
         text = fence.group(1).strip()
+    # Extract outermost JSON object
     brace = re.search(r"\{.*\}", text, re.DOTALL)
     if brace:
         text = brace.group(0)
+    if not text:
+        raise ValueError(f"Could not extract JSON from: {raw[:200]}")
     return json.loads(text)
 
 

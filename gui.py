@@ -155,10 +155,14 @@ def render_usage_panel(usage_summary: dict) -> None:
             st.markdown("**Per-prospect breakdown**")
             rows = []
             for p in per_p_list:
+                if p.get("company") == "_grok_research":
+                    continue
+
                 rows.append({
                     "Company": p.get("company", ""),
                     "Grok in": p.get("grok_input_tokens", 0),
                     "Grok out": p.get("grok_output_tokens", 0),
+                    "Gemini": f"{p.get('gemini_input_tokens',0)}in/{p.get('gemini_output_tokens',0)}out",
                     "Sonnet": f"{p.get('sonnet_input_tokens',0)}in/{p.get('sonnet_output_tokens',0)}out",
                     "Opus": f"{p.get('opus_input_tokens',0)}in/{p.get('opus_output_tokens',0)}out",
                     "Exa": p.get("exa_credits_total", 0),
