@@ -513,13 +513,24 @@ def render_history_card(row: dict) -> None:
 
 def render_history_sidebar() -> None:
     """Show 10 most recent companies from Sheets as clickable chips."""
-    try:
-        from core.sheets import SheetsClient
-        sc = SheetsClient()
-        recent = sc.get_recent_leads(max_rows=10)
-    except Exception as exc:
-        st.caption(f"Could not load history: {exc}")
-        return
+    
+    # Cache recent leads in session state — refresh every 5 minutes
+    cache_key = "recent_leads_cache"
+    cache_ts_key = "recent_leads_cache_ts"
+    now = datetime.now().timestamp()
+    cache_age = now - st.session_state.get(cache_ts_key, 0)
+    
+    if cache_key not in st.session_state or cache_age > 300:
+        try:
+            from core.sheets import SheetsClient
+            sc = SheetsClient()
+            st.session_state[cache_key] = sc.get_recent_leads(max_rows=10)
+            st.session_state[cache_ts_key] = now
+        except Exception as exc:
+            st.caption(f"Could not load history: {exc}")
+            return
+
+    recent = st.session_state.get(cache_key, [])
 
     if not recent:
         st.caption("No leads in Sheets yet.")
@@ -538,7 +549,6 @@ def render_history_sidebar() -> None:
             st.session_state["history_view"] = row
             st.session_state["view_mode"] = "history"
             st.rerun()
-
 
 
 # ---------------------------------------------------------------------------
@@ -813,6 +823,10 @@ def _run_and_display(query_str: str, dry: bool) -> None:
                 st.caption("No log output captured for this run.")
         else:
             st.caption("Log stream not initialised — refresh the page and try again.")
+
+    # Invalidate history cache so sidebar refreshes after this run
+    st.session_state.pop("recent_leads_cache", None)
+    st.session_state.pop("recent_leads_cache_ts", None)
 
     _append_to_history({
         "timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
