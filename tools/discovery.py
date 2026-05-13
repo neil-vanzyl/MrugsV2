@@ -117,6 +117,19 @@ def discover_companies(query: str, usage_tracker=None) -> dict:
 
     # Step 1 — Gemini translates query to Exa search strings
     search_strings = translate_query(query)
+
+    if sheets and run_id:
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Gemini",
+            status="OK" if search_strings else "FAILED",
+            detail=(
+                f"Translated to {len(search_strings)} search string(s)"
+                if search_strings
+                else "Query translation returned no search strings"
+            ),
+        )
+        
     if not search_strings:
         logger.warning("Discovery: no search strings from Gemini — skipping discovery")
         return empty

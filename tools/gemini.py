@@ -58,10 +58,11 @@ def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKE
         resp.raise_for_status()
 
     data = resp.json()
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (KeyError, IndexError) as exc:
-        raise ValueError(f"Unexpected Gemini response structure: {exc}") from exc
+    raw_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    if not raw_text:
+        logger.error(f"Gemini: empty response body. Full response: {data}")
+        raise ValueError("Gemini returned empty content")
+    return raw_text.strip()
 
 
 def _extract_json(raw: str):
