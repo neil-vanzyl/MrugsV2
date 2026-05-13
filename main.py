@@ -397,6 +397,7 @@ def run_pipeline(query: str, dry_run: bool = False) -> List[dict]:
     run_id  = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     usage   = RunUsage(query)
     sheets  = SheetsClient()
+    sheets._connect()
     summary = []
 
     # ------------------------------------------------------------------

@@ -115,6 +115,9 @@ def discover_companies(query: str, usage_tracker=None, sheets=None, run_id: str 
         "discovery_ran": False,
     }
 
+    # Log debug info to confirm sheets is connected
+    logger.info(f"Discovery: sheets={sheets is not None} run_id={run_id}")
+    
     # Step 1 — Gemini translates query to Exa search strings
     search_strings = translate_query(query, usage_tracker=usage_tracker)
 
