@@ -116,7 +116,7 @@ def discover_companies(query: str, usage_tracker=None, sheets=None, run_id: str 
     }
 
     # Step 1 — Gemini translates query to Exa search strings
-    search_strings = translate_query(query)
+    search_strings = translate_query(query, usage_tracker=usage_tracker)
 
     if sheets and run_id:
         sheets.write_log(
@@ -129,7 +129,7 @@ def discover_companies(query: str, usage_tracker=None, sheets=None, run_id: str 
                 else "Query translation returned no search strings"
             ),
         )
-        
+
     if not search_strings:
         logger.warning("Discovery: no search strings from Gemini — skipping discovery")
         return empty
@@ -162,7 +162,7 @@ def discover_companies(query: str, usage_tracker=None, sheets=None, run_id: str 
         }
 
     # Step 4 — Gemini creatively scores and selects top 5
-    scored = score_companies(all_found, query)
+    scored = score_companies(all_found, query, usage_tracker=usage_tracker)
 
     return {
         "selected":       scored.get("selected", []),

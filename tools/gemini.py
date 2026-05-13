@@ -32,7 +32,7 @@ GEMINI_API_URL: str = (
 # Shared request helper
 # ---------------------------------------------------------------------------
 
-def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKENS) -> str:
+def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKENS) -> tuple:
     """Fire a single-turn Gemini request and return the text response."""
     if not GEMINI_API_KEY:
         raise ValueError(
@@ -62,11 +62,18 @@ def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKE
     if not raw_text:
         logger.error(f"Gemini: empty response body. Full response: {data}")
         raise ValueError("Gemini returned empty content")
-    return raw_text.strip()
+
+    # Extract token counts from response
+    usage_meta = data.get("usageMetadata", {})
+    tokens_in  = usage_meta.get("promptTokenCount", 0)
+    tokens_out = usage_meta.get("candidatesTokenCount", 0)
+
+    return raw_text.strip(), tokens_in, tokens_out
 
 
 def _extract_json(raw: str):
     """Strip markdown fences and parse JSON."""
+    logger.debug(f"Gemini raw response: {text[:500]}")
     text = raw.strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if fence:
@@ -90,7 +97,7 @@ def translate_query(query: str) -> List[str]:
     prompt = TRANSLATE_PROMPT.format(query=query)
 
     try:
-        raw = _call_gemini(prompt, max_tokens=512)
+        raw, tokens_in, tokens_out = _call_gemini(prompt, max_tokens=2048)
         result = _extract_json(raw)
         strings = result.get("search_strings", [])
         logger.info(
@@ -131,7 +138,7 @@ def score_companies(companies: List[dict], query: str) -> dict:
     prompt = SCORE_PROMPT.format(companies=company_list, query=query)
 
     try:
-        raw = _call_gemini(prompt, max_tokens=2048)
+        raw, tokens_in, tokens_out = _call_gemini(prompt, max_tokens=2048)
         result = _extract_json(raw)
         selected = result.get("selected", [])[:5]
         rejected = result.get("rejected", [])

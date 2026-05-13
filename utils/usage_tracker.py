@@ -45,6 +45,8 @@ PRICE = {
     # API credits — price per credit
     "exa_per_credit":       0.005,
     "apollo_per_credit":    0.490,
+    "gemini_input_per_1m":  0.075,
+    "gemini_output_per_1m": 0.30,
 }
 
 
@@ -82,6 +84,10 @@ class ProspectUsage:
     apollo_search_calls: int = 0   # People Search — always 0 credits
     apollo_enrich_credits: int = 0  # Bulk Enrich — 1 credit per matched person
 
+    #Gemini
+    gemini_input_tokens:  int = 0
+    gemini_output_tokens: int = 0
+
     @property
     def exa_credits(self) -> int:
         return self.exa_exec_searches + self.exa_jd_reads + self.exa_verifications
@@ -91,6 +97,8 @@ class ProspectUsage:
         return (
             _token_cost(self.grok_input_tokens,   PRICE["grok_input_per_1m"])
           + _token_cost(self.grok_output_tokens,  PRICE["grok_output_per_1m"])
+          + _token_cost(self.gemini_input_tokens, PRICE["gemini_input_per_1m"])
+          + _token_cost(self.gemini_output_tokens,PRICE["gemini_output_per_1m"])
           + _token_cost(self.sonnet_input_tokens,  PRICE["sonnet_input_per_1m"])
           + _token_cost(self.sonnet_output_tokens, PRICE["sonnet_output_per_1m"])
           + _token_cost(self.opus_input_tokens,    PRICE["opus_input_per_1m"])
@@ -104,6 +112,8 @@ class ProspectUsage:
             "company":               self.company,
             "grok_input_tokens":     self.grok_input_tokens,
             "grok_output_tokens":    self.grok_output_tokens,
+            "gemini_input_tokens":   self.gemini_input_tokens,
+            "gemini_output_tokens":  self.gemini_output_tokens,
             "sonnet_input_tokens":   self.sonnet_input_tokens,
             "sonnet_output_tokens":  self.sonnet_output_tokens,
             "opus_input_tokens":     self.opus_input_tokens,
@@ -176,6 +186,15 @@ class RunUsage:
             f"tokens | est ${_token_cost(input_tokens, PRICE['grok_input_per_1m']) + _token_cost(output_tokens, PRICE['grok_output_per_1m']):.4f}"
         )
 
+    def record_gemini(self, input_tokens: int, output_tokens: int) -> None:
+    if self._current:
+        self._current.gemini_input_tokens  += input_tokens
+        self._current.gemini_output_tokens += output_tokens
+    logger.info(
+        f"Usage | Gemini  | in={input_tokens:,} out={output_tokens:,} "
+        f"tokens | est ${_token_cost(input_tokens, PRICE['gemini_input_per_1m']) + _token_cost(output_tokens, PRICE['gemini_output_per_1m']):.4f}"
+    )
+
     def record_sonnet(self, input_tokens: int, output_tokens: int) -> None:
         if self._current:
             self._current.sonnet_input_tokens  += input_tokens
@@ -234,6 +253,8 @@ class RunUsage:
         t: Dict[str, int | float] = {
             "grok_input_tokens":     0,
             "grok_output_tokens":    0,
+            "gemini_input_tokens":   0,
+            "gemini_output_tokens":  0,
             "sonnet_input_tokens":   0,
             "sonnet_output_tokens":  0,
             "opus_input_tokens":     0,
@@ -246,6 +267,8 @@ class RunUsage:
         for p in self._prospects:
             t["grok_input_tokens"]     += p.grok_input_tokens
             t["grok_output_tokens"]    += p.grok_output_tokens
+            t["gemini_input_tokens"]  += p.gemini_input_tokens
+            t["gemini_output_tokens"] += p.gemini_output_tokens
             t["sonnet_input_tokens"]   += p.sonnet_input_tokens
             t["sonnet_output_tokens"]  += p.sonnet_output_tokens
             t["opus_input_tokens"]     += p.opus_input_tokens
@@ -294,6 +317,14 @@ class RunUsage:
                 "cost_usd":      round(
                     _token_cost(t["grok_input_tokens"],  PRICE["grok_input_per_1m"]) +
                     _token_cost(t["grok_output_tokens"], PRICE["grok_output_per_1m"]), 4
+                ),
+            },
+            "gemini": {
+                "input_tokens":  t["gemini_input_tokens"],
+                "output_tokens": t["gemini_output_tokens"],
+                "cost_usd": round(
+                    _token_cost(t["gemini_input_tokens"],  PRICE["gemini_input_per_1m"]) +
+                    _token_cost(t["gemini_output_tokens"], PRICE["gemini_output_per_1m"]), 4
                 ),
             },
             "sonnet": {

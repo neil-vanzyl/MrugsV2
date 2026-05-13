@@ -118,6 +118,7 @@ def render_usage_panel(usage_summary: dict) -> None:
         expanded=False,
     ):
         g = usage_summary.get("grok", {})
+        g_ai = usage_summary.get("gemini", {})
         s = usage_summary.get("sonnet", {})
         o = usage_summary.get("opus", {})
         e = usage_summary.get("exa", {})
@@ -131,6 +132,7 @@ def render_usage_panel(usage_summary: dict) -> None:
                 f"| Tool | Input | Output | Est. Cost |\n"
                 f"|------|-------|--------|-----------|\n"
                 f"| Grok grok-4-1 | {g.get('input_tokens',0):,} | {g.get('output_tokens',0):,} | ${g.get('cost_usd',0):.4f} |\n"
+                f"| Gemini Flash | {g_ai.get('input_tokens',0):,} | {g_ai.get('output_tokens',0):,} | ${g_ai.get('cost_usd',0):.4f} |\n"
                 f"| Claude Sonnet | {s.get('input_tokens',0):,} | {s.get('output_tokens',0):,} | ${s.get('cost_usd',0):.4f} |\n"
                 f"| Claude Opus | {o.get('input_tokens',0):,} | {o.get('output_tokens',0):,} | ${o.get('cost_usd',0):.4f} |"
             )
