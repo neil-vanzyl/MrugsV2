@@ -187,13 +187,13 @@ class RunUsage:
         )
 
     def record_gemini(self, input_tokens: int, output_tokens: int) -> None:
-    if self._current:
-        self._current.gemini_input_tokens  += input_tokens
-        self._current.gemini_output_tokens += output_tokens
-    logger.info(
-        f"Usage | Gemini  | in={input_tokens:,} out={output_tokens:,} "
-        f"tokens | est ${_token_cost(input_tokens, PRICE['gemini_input_per_1m']) + _token_cost(output_tokens, PRICE['gemini_output_per_1m']):.4f}"
-    )
+        if self._current:
+            self._current.gemini_input_tokens  += input_tokens
+            self._current.gemini_output_tokens += output_tokens
+        logger.info(
+            f"Usage | Gemini  | in={input_tokens:,} out={output_tokens:,} "
+            f"tokens | est ${_token_cost(input_tokens, PRICE['gemini_input_per_1m']) + _token_cost(output_tokens, PRICE['gemini_output_per_1m']):.4f}"
+        )
 
     def record_sonnet(self, input_tokens: int, output_tokens: int) -> None:
         if self._current:
