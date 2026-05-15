@@ -953,6 +953,9 @@ else:
         st.markdown(f"**Tracked Accounts · BU={bu}**")
 
         # on button click the load accounts
+        acc_cache_key = f"accounts_{bu}"
+        acc_cache_ts  = f"accounts_cache_ts_{bu}"
+        
         col_refresh, _ = st.columns([1, 4])
         with col_refresh:
             if st.button("🔄 Load Accounts", key="load_accounts_btn"):
