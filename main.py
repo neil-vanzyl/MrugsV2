@@ -439,6 +439,11 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
         gemini_reasonings = {}
         use_prospect_mode = False
 
+    bu_context = {
+                    "NAM": "Prioritise companies headquartered in North America (US, Canada, Mexico).",
+                    "E&L": "Prioritise companies headquartered in Europe or Latin America.",
+                    "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
+                }.get(bu, "")
     # Stage 1 — Grok
     t0 = time.monotonic()
     try:
@@ -459,11 +464,7 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
                     f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst) "
                     f"based on what you find."
                 )
-                bu_context = {
-                    "NAM": "Prioritise companies headquartered in North America (US, Canada, Mexico).",
-                    "E&L": "Prioritise companies headquartered in Europe or Latin America.",
-                    "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
-                }.get(bu, "")
+                
                 contextualised_query = f"{query}\n\nHEADQUARTERS CONTEXT: {bu_context}" if bu_context else query
                 grok_result = run_research_waterfall(
                     contextualised_query, usage_tracker=usage)
