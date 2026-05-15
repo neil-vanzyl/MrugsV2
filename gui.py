@@ -755,7 +755,7 @@ with st.sidebar:
 # Main content
 # ---------------------------------------------------------------------------
 
-st.title("Accedo Strategic Lead Scout")
+st.title("Media & Entertainment Revenue Unearther GUI for Sales aka MRUGS")
 st.markdown(
     "**Grok-4** live research · **Claude Sonnet** qualification · "
     "**Claude Opus** outreach · **Exa** LinkedIn intel · **Apollo** contact enrichment · "
