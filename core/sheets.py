@@ -1,8 +1,12 @@
 """
 core/sheets.py — Google Sheets persistence (Multi-Tab Edition).
 
-Updated to support routing leads to "Leads" (Hot/Warm) or "Cold Leads" 
-tabs based on the Analyst's verdict. 
+Supports:
+- Leads / Cold Leads tab routing based on analyst verdict
+- Logs tab for per-step API audit trail
+- Accounts tab for tracked prospect list (account intelligence track)
+- Signals tab for persistent signal history across all runs
+- get_press_sources() / get_semantic_guide() — built but gated
 """
 
 import logging
@@ -38,10 +42,11 @@ LOG_COLUMNS = [
     "Duration ms",
 ]
 
+
 class SheetsClient:
     """
     Writes lead intelligence to Google Sheets.
-    Supports routing to separate 'Hot' and 'Cold' worksheets.
+    Supports Leads, Cold Leads, Logs, Accounts, and Signals worksheets.
     """
 
     def __init__(self) -> None:
@@ -49,15 +54,17 @@ class SheetsClient:
         self._ws_hot: Optional[gspread.Worksheet] = None
         self._ws_cold: Optional[gspread.Worksheet] = None
         self._ws_logs: Optional[gspread.Worksheet] = None
+        self._ws_accounts: Optional[gspread.Worksheet] = None
+        self._ws_signals: Optional[gspread.Worksheet] = None
         self._seen_domains: Set[str] = set()
-        self._seen_pairs: Set[tuple] = set()   # (domain, contact_name)
+        self._seen_pairs: Set[tuple] = set()
 
     # ------------------------------------------------------------------
     # Connection logic
     # ------------------------------------------------------------------
 
     def _connect(self) -> None:
-        """Initialize the spreadsheet connection and both worksheets."""
+        """Initialize the spreadsheet connection and all worksheets."""
         if self._ss is not None:
             return
 
@@ -65,17 +72,21 @@ class SheetsClient:
         sa_path = config.GOOGLE_SERVICE_ACCOUNT_JSON
         if os.path.exists(sa_path):
             creds = Credentials.from_service_account_file(sa_path, scopes=SCOPES)
+            logger.info("Sheets: credentials loaded from local file")
         else:
             sa_info = None
             try:
                 import streamlit as st
                 if "GOOGLE_SERVICE_ACCOUNT_JSON" in st.secrets:
                     sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
+                    logger.info("Sheets: credentials loaded from Streamlit TOML secret")
             except Exception:
                 pass
             if sa_info is None:
                 sa_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "{}"))
+                logger.info("Sheets: credentials loaded from env var JSON string")
             creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+
         gc = gspread.authorize(creds)
         try:
             self._ss = gc.open(config.GOOGLE_SHEET_NAME)
@@ -83,18 +94,16 @@ class SheetsClient:
             logger.info(f"Sheets: creating new spreadsheet '{config.GOOGLE_SHEET_NAME}'")
             self._ss = gc.create(config.GOOGLE_SHEET_NAME)
 
-        # Connect/Create Hot Worksheet
-        self._ws_hot = self._get_or_create_ws(config.GOOGLE_WORKSHEET_NAME)
-        
-        # Connect/Create Cold Worksheet
-        self._ws_cold = self._get_or_create_ws(config.GOOGLE_COLD_WORKSHEET_NAME)
-
-        #connect to logs worksheet
-        self._ws_logs = self._get_or_create_ws(config.GOOGLE_LOGS_WORKSHEET_NAME, LOG_COLUMNS)
+        self._ws_hot      = self._get_or_create_ws(config.GOOGLE_WORKSHEET_NAME)
+        self._ws_cold     = self._get_or_create_ws(config.GOOGLE_COLD_WORKSHEET_NAME)
+        self._ws_logs     = self._get_or_create_ws(config.GOOGLE_LOGS_WORKSHEET_NAME, LOG_COLUMNS)
+        self._ws_accounts = self._get_or_create_ws(config.GOOGLE_ACCOUNTS_WORKSHEET_NAME, config.ACCOUNTS_COLUMNS)
+        self._ws_signals  = self._get_or_create_ws(config.GOOGLE_SIGNALS_WORKSHEET_NAME, config.SIGNALS_COLUMNS)
 
         self._load_dedup_cache()
 
     def _get_or_create_ws(self, title: str, columns: list = None) -> gspread.Worksheet:
+        """Find or create a worksheet and ensure headers exist."""
         cols = columns or config.SHEET_COLUMNS
         try:
             ws = self._ss.worksheet(title)
@@ -110,11 +119,11 @@ class SheetsClient:
         return ws
 
     # ------------------------------------------------------------------
-    # Dedup cache (Checks BOTH sheets)
+    # Dedup cache
     # ------------------------------------------------------------------
 
     def _load_dedup_cache(self) -> None:
-        """Load records from both tabs to prevent re-researching any lead."""
+        """Load records from both lead tabs to prevent duplicates."""
         for ws in [self._ws_hot, self._ws_cold]:
             try:
                 records = ws.get_all_records()
@@ -127,7 +136,6 @@ class SheetsClient:
                         self._seen_pairs.add((domain, contact))
             except Exception as exc:
                 logger.warning(f"Sheets: could not load cache for '{ws.title}': {exc}")
-        
         logger.info(f"Sheets: dedup cache loaded — {len(self._seen_domains)} total domains")
 
     def is_duplicate(self, domain: str, contact_name: str = "") -> bool:
@@ -143,7 +151,7 @@ class SheetsClient:
             self._seen_pairs.add((d, contact_name.strip().lower()))
 
     # ------------------------------------------------------------------
-    # Write Logic
+    # Lead write
     # ------------------------------------------------------------------
 
     def append_lead(
@@ -153,13 +161,12 @@ class SheetsClient:
         emails: dict,
         contact=None,
         query: str = "",
-        is_cold: bool = False,  
-        exa_rejected: str = "",        
+        is_cold: bool = False,
+        exa_rejected: str = "",
         gemini_reasoning: str = "",
+        bu: str = "",
     ) -> bool:
-        """
-        Write a single lead row to either the HOT or COLD worksheet.
-        """
+        """Write a single lead row to either the HOT or COLD worksheet."""
         domain = prospect.get("domain", "")
         company = prospect.get("name", "")
         contact_name = contact.name if contact else ""
@@ -172,7 +179,6 @@ class SheetsClient:
 
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-        # Unpack fields (same as your original logic)
         score = analyst.get("refined_score", prospect.get("opportunity_score", ""))
         priority = prospect.get("priority", "")
         opp_type = prospect.get("opportunity_type", "")
@@ -201,9 +207,6 @@ class SheetsClient:
         apollo_email    = contact.email if contact else ""
         apollo_linkedin = contact.linkedin_url if contact else ""
 
-        # Exa columns — read from _exa_sheet_quote/_exa_sheet_pain injected by exa.py.
-        # These fields merge LinkedIn post intel + JD tech debt into the two sheet cells.
-        # Falls back gracefully to empty string when Exa is not active.
         vis_exa_quote = str(visionary.get("_exa_sheet_quote", "") or "")[:300]
         vis_exa_pain  = str(visionary.get("_exa_sheet_pain",  "") or "")[:300]
         ops_exa_quote = str(operator.get("_exa_sheet_quote",  "") or "")[:300]
@@ -224,28 +227,27 @@ class SheetsClient:
             vis_email.get("subject_line", ""), vis_email.get("body", ""),
             ops_email.get("subject_line", ""), ops_email.get("body", ""),
             obj_inhouse, obj_incumbent, obj_budget,
-            # Exa LinkedIn intelligence (cols 32-35)
             vis_exa_quote, vis_exa_pain, ops_exa_quote, ops_exa_pain,
-            # Apollo enrichment (cols 36-39)
             apollo_name, apollo_title, apollo_email, apollo_linkedin,
             outreach.get("salesforce_note", ""), str(prospect.get("research_gaps", "")),
-            query, "New", exa_rejected, gemini_reasoning
+            query, "New", exa_rejected, gemini_reasoning, bu,
         ]
 
-        # Route to the correct worksheet object
         target_ws = self._ws_cold if is_cold else self._ws_hot
 
         if len(row) != len(config.SHEET_COLUMNS):
-            logger.error(f"Row mismatch in {target_ws.title} for {company}.")
+            logger.error(f"Row mismatch in {target_ws.title} for {company}. "
+                         f"Row={len(row)} Cols={len(config.SHEET_COLUMNS)}")
             return False
 
         target_ws.append_row(row, value_input_option="RAW")
         self._mark_seen(domain, contact_name)
-
-        logger.info(
-            f"Sheets: WRITTEN TO {'COLD' if is_cold else 'HOT'} — {company} | score={score}"
-        )
+        logger.info(f"Sheets: WRITTEN TO {'COLD' if is_cold else 'HOT'} — {company} | score={score} | bu={bu}")
         return True
+
+    # ------------------------------------------------------------------
+    # Log write
+    # ------------------------------------------------------------------
 
     def write_log(
         self,
@@ -265,21 +267,11 @@ class SheetsClient:
     ) -> None:
         """Write one API call audit row to the Logs worksheet."""
         self._connect()
-        logger.info(f"Sheets.write_log: step={step} company={company} ws_logs={self._ws_logs is not None}")
-
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         row = [
-            ts,
-            run_id,
-            query[:80],
-            company,
-            domain,
-            step,
-            status,
+            ts, run_id, query[:80], company, domain, step, status,
             detail[:300] if detail else "",
-            tokens_in or "",
-            tokens_out or "",
-            credits or "",
+            tokens_in or "", tokens_out or "", credits or "",
             round(cost_usd, 4) if cost_usd else "",
             error[:300] if error else "",
             duration_ms or "",
@@ -294,10 +286,139 @@ class SheetsClient:
         except Exception as exc:
             logger.error(f"Sheets: log write failed for '{company}' / {step}: {exc}")
 
-    def get_recent_leads(self, max_rows: int = 10) -> list:
+    # ------------------------------------------------------------------
+    # Signal persistence
+    # ------------------------------------------------------------------
+
+    def write_signals(
+        self,
+        signals: list,
+        company: str,
+        domain: str,
+        bu: str,
+        run_id: str,
+        score: int = 0,
+        prospect_type: str = "",
+    ) -> None:
+        """
+        Write individual signals to the Signals worksheet for historical tracking.
+        Called after Sonnet qualification so score is available.
+        """
+        self._connect()
+        if not signals:
+            return
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        rows = []
+        for sig in signals:
+            rows.append([
+                ts,
+                run_id,
+                company,
+                domain,
+                bu,
+                sig.get("signal_type", ""),
+                sig.get("evidence", "")[:300],
+                sig.get("source_url") or sig.get("source_type", ""),
+                sig.get("confidence", ""),
+                str(score) if score else "",
+                prospect_type,
+            ])
+
+        try:
+            self._ws_signals.append_rows(rows, value_input_option="RAW")
+            logger.info(f"Sheets: {len(rows)} signal(s) written for '{company}'")
+        except Exception as exc:
+            logger.warning(f"Sheets: signal write failed for '{company}': {exc}")
+
+    # ------------------------------------------------------------------
+    # Accounts tab
+    # ------------------------------------------------------------------
+
+    def get_accounts(self, bu_filter: str = None) -> list:
+        """
+        Read all tracked accounts from the Accounts tab.
+        Optionally filter by BU.
+        """
+        self._connect()
+        try:
+            records = self._ws_accounts.get_all_records()
+            if bu_filter:
+                records = [r for r in records if r.get("BU", "") == bu_filter]
+            return records
+        except Exception as exc:
+            logger.warning(f"Sheets: could not read accounts: {exc}")
+            return []
+
+    def upsert_account(self, row: dict) -> None:
+        """
+        Add a new account or update an existing one by domain.
+        Matches on Domain column.
+        """
+        self._connect()
+        domain = row.get("Domain", "").strip().lower()
+        if not domain:
+            logger.warning("Sheets: upsert_account called with no domain — skipping")
+            return
+
+        try:
+            records = self._ws_accounts.get_all_records()
+            for i, r in enumerate(records, start=2):  # row 1 is header
+                if r.get("Domain", "").strip().lower() == domain:
+                    # Update existing row
+                    update_row = [
+                        row.get("Company", r.get("Company", "")),
+                        row.get("Domain", r.get("Domain", "")),
+                        row.get("LinkedIn URL", r.get("LinkedIn URL", "")),
+                        row.get("BU", r.get("BU", "")),
+                        row.get("Tier", r.get("Tier", "")),
+                        row.get("Region", r.get("Region", "")),
+                        r.get("Last Run", ""),
+                        r.get("Status", "Active"),
+                    ]
+                    self._ws_accounts.update(f"A{i}", [update_row])
+                    logger.info(f"Sheets: updated account '{domain}'")
+                    return
+
+            # New account
+            new_row = [
+                row.get("Company", ""),
+                row.get("Domain", ""),
+                row.get("LinkedIn URL", ""),
+                row.get("BU", ""),
+                row.get("Tier", ""),
+                row.get("Region", ""),
+                "",
+                "Active",
+            ]
+            self._ws_accounts.append_row(new_row, value_input_option="RAW")
+            logger.info(f"Sheets: added account '{row.get('Company', domain)}'")
+        except Exception as exc:
+            logger.warning(f"Sheets: upsert_account failed for '{domain}': {exc}")
+
+    def update_account_last_run(self, domain: str, timestamp: str) -> None:
+        """Stamp the Last Run timestamp on an account after it has been researched."""
+        self._connect()
+        domain_lower = domain.strip().lower()
+        try:
+            records = self._ws_accounts.get_all_records()
+            for i, r in enumerate(records, start=2):
+                if r.get("Domain", "").strip().lower() == domain_lower:
+                    # Last Run is column G (index 7, 1-based)
+                    self._ws_accounts.update_cell(i, 7, timestamp)
+                    logger.debug(f"Sheets: updated last run for '{domain}'")
+                    return
+        except Exception as exc:
+            logger.warning(f"Sheets: update_account_last_run failed for '{domain}': {exc}")
+
+    # ------------------------------------------------------------------
+    # Recent leads (history sidebar)
+    # ------------------------------------------------------------------
+
+    def get_recent_leads(self, max_rows: int = 10, bu_filter: str = None) -> list:
         """
         Fetch the most recent leads across both Leads and Cold Leads tabs.
-        Returns a list of dicts sorted by Timestamp descending.
+        Optionally filter by BU. Returns list sorted by Timestamp descending.
         """
         self._connect()
         rows = []
@@ -306,15 +427,15 @@ class SheetsClient:
             try:
                 records = ws.get_all_records()
                 for r in records:
+                    if bu_filter and r.get("BU", "") != bu_filter:
+                        continue
                     r["_tab"] = tab
                     rows.append(r)
             except Exception as exc:
                 logger.warning(f"Sheets: could not fetch recent leads from '{tab}': {exc}")
 
-        # Sort by Timestamp descending
         def _parse_ts(r):
             try:
-                from datetime import datetime
                 return datetime.strptime(r.get("Timestamp", ""), "%Y-%m-%d %H:%M UTC")
             except Exception:
                 return datetime.min
@@ -322,13 +443,105 @@ class SheetsClient:
         rows.sort(key=_parse_ts, reverse=True)
         return rows[:max_rows]
 
+    # ------------------------------------------------------------------
+    # External reference data — built but gated
+    # ------------------------------------------------------------------
+
+    def get_press_sources(self) -> list:
+        """
+        Read active press sources from the external Press Sources Google Sheet.
+        Returns list of dicts with Source Name, URL, Category.
+        Degrades gracefully if sheet ID not configured.
+
+        GATED: not called by pipeline until GOOGLE_PRESS_SOURCES_SHEET_ID is set.
+        """
+        if not config.GOOGLE_PRESS_SOURCES_SHEET_ID:
+            logger.debug("Sheets: GOOGLE_PRESS_SOURCES_SHEET_ID not set — skipping press sources")
+            return []
+        try:
+            import json, os
+            sa_path = config.GOOGLE_SERVICE_ACCOUNT_JSON
+            if os.path.exists(sa_path):
+                creds = Credentials.from_service_account_file(sa_path, scopes=SCOPES)
+            else:
+                sa_info = None
+                try:
+                    import streamlit as st
+                    if "GOOGLE_SERVICE_ACCOUNT_JSON" in st.secrets:
+                        sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
+                except Exception:
+                    pass
+                if sa_info is None:
+                    sa_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "{}"))
+                creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+
+            gc = gspread.authorize(creds)
+            ss = gc.open_by_key(config.GOOGLE_PRESS_SOURCES_SHEET_ID)
+            ws = ss.get_worksheet(0)
+            records = ws.get_all_records()
+            active = [r for r in records if str(r.get("Active", "")).upper() == "TRUE"]
+            logger.info(f"Sheets: loaded {len(active)} active press sources")
+            return active
+        except Exception as exc:
+            logger.warning(f"Sheets: could not load press sources: {exc}")
+            return []
+
+    def get_semantic_guide(self) -> str:
+        """
+        Read semantic search guidance from the external Google Doc.
+        Returns plain text content.
+        Degrades gracefully if doc ID not configured.
+
+        GATED: not called by pipeline until GOOGLE_SEMANTIC_GUIDE_DOC_ID is set.
+        """
+        if not config.GOOGLE_SEMANTIC_GUIDE_DOC_ID:
+            logger.debug("Sheets: GOOGLE_SEMANTIC_GUIDE_DOC_ID not set — skipping semantic guide")
+            return ""
+        try:
+            # Google Docs export as plain text via Drive API
+            import requests as req
+            import json, os
+            sa_path = config.GOOGLE_SERVICE_ACCOUNT_JSON
+            if os.path.exists(sa_path):
+                creds = Credentials.from_service_account_file(sa_path, scopes=SCOPES)
+            else:
+                sa_info = None
+                try:
+                    import streamlit as st
+                    if "GOOGLE_SERVICE_ACCOUNT_JSON" in st.secrets:
+                        sa_info = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
+                except Exception:
+                    pass
+                if sa_info is None:
+                    sa_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "{}"))
+                creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+
+            from google.auth.transport.requests import Request
+            creds.refresh(Request())
+            url = f"https://docs.googleapis.com/v1/documents/{config.GOOGLE_SEMANTIC_GUIDE_DOC_ID}"
+            headers = {"Authorization": f"Bearer {creds.token}"}
+            resp = req.get(url, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                doc = resp.json()
+                text_parts = []
+                for block in doc.get("body", {}).get("content", []):
+                    for el in block.get("paragraph", {}).get("elements", []):
+                        text_parts.append(el.get("textRun", {}).get("content", ""))
+                content = "".join(text_parts).strip()
+                logger.info(f"Sheets: loaded semantic guide ({len(content)} chars)")
+                return content
+            logger.warning(f"Sheets: semantic guide fetch returned {resp.status_code}")
+            return ""
+        except Exception as exc:
+            logger.warning(f"Sheets: could not load semantic guide: {exc}")
+            return ""
+
+
+# ------------------------------------------------------------------
+# Module-level helpers
+# ------------------------------------------------------------------
+
 def _strip_citation(value: str) -> str:
-    """
-    Strip inline (Source: ...) citations Grok embeds in field values.
-    Grok correctly cites sources inline but it pollutes identity fields
-    like Incumbent Vendor where we want just the vendor name.
-    Handles: 'Akta (Source: akta.tech/...)' → 'Akta'
-    """
     import re
     if not value:
         return value

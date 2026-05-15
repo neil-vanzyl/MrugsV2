@@ -3,13 +3,55 @@ prompts/scout.py — Grok research waterfall system prompt.
 
 Kept in its own file so the prompt can be versioned, A/B tested,
 and updated independently of the calling code.
+
+Optional parameters:
+    press_sources   — list of dicts from sheets.get_press_sources()
+                      When None, falls back to hardcoded sources.
+                      GATED: activate by passing press_sources in grok.py.
+    semantic_guide  — string from sheets.get_semantic_guide()
+                      When None, omitted from prompt.
+                      GATED: activate by passing semantic_guide in grok.py.
 """
 
 from datetime import datetime
 
 
-def build_scout_prompt(max_prospects: int = 5) -> str:
+def build_scout_prompt(
+    max_prospects: int = 5,
+    press_sources: list = None,
+    semantic_guide: str = None,
+) -> str:
     today = datetime.now().strftime("%B %d, %Y")
+
+    # Build press sources section — use external sheet if provided, else hardcoded
+    if press_sources:
+        trade_press_lines = "\n".join(
+            f"- {s.get('Source Name', '')} ({s.get('URL', '')}) — {s.get('Category', '')}"
+            for s in press_sources
+            if s.get("Source Name")
+        )
+        tier3_block = f"TIER 3 — INDUSTRY PRESS (from external sources sheet)\n{trade_press_lines}"
+    else:
+        tier3_block = """TIER 3 — INDUSTRY PRESS
+- Variety, Deadline, THR: rights deals, M&A, content pivots
+- StreamTV Insider, Fierce Video, The Television Network, Advanced Television:
+  platform launches, vendor changes
+- Sportico, SportsPro: sports rights (each deal implies a peak concurrency requirement)
+- TechCrunch, The Verge: startup launches, funding, product announcements"""
+
+    # Build semantic guide section — appended at end if provided
+    semantic_block = ""
+    if semantic_guide and semantic_guide.strip():
+        semantic_block = f"""
+
+---
+
+[SEMANTIC SEARCH GUIDANCE]
+The following additional search instructions have been provided by the Accedo team.
+Apply these when researching prospects:
+
+{semantic_guide.strip()}"""
+
     return f"""Today's Date: {today}
 
 [ROLE & MISSION]
@@ -96,24 +138,15 @@ TIER 2 — FUNDING & GROWTH INTELLIGENCE
   "[Company]" + ("HLS" OR "DASH" OR "SSAI" OR "Tizen" OR "WebOS" OR "Roku" OR
   "video player" OR "streaming front-end" OR "OTT" OR "CTV" OR "connected TV")
   Also search for expansion-intent roles: "Head of Streaming", "Director of Digital
-  Distribution", "VP Platform Partnerships", "Head of CTV" — these signal platform
-  expansion intent even before engineering roles appear
+  Distribution", "VP Platform Partnerships", "Head of CTV"
 - RULE: 3+ senior open OTT roles = ambition gap Accedo can fill
 - RULE: Senior OTT role open >60 days = hiring failure = they cannot build what they promised
-- Cross-reference open roles against public roadmap promises — the gap IS the pitch
 
-TIER 3 — INDUSTRY PRESS
-- Variety, Deadline, THR: rights deals, M&A, content pivots
-- StreamTV Insider, Fierce Video, The Television Network, Advanced Television:
-  platform launches, vendor changes
-- Sportico, SportsPro: sports rights (each deal implies a peak concurrency requirement)
-- TechCrunch, The Verge: startup launches, funding, product announcements
+{tier3_block}
 
 TIER 4 — GROWTH VELOCITY SIGNALS
-- App store download rankings and category position (data.ai / Sensor Tower searches):
-  "[Company] app downloads" OR "[Company] app ranking" — rapid growth = platform pressure
-- YouTube channel subscriber count and upload velocity for media companies:
-  A channel growing fast often precedes OTT platform investment
+- App store download rankings and category position (data.ai / Sensor Tower searches)
+- YouTube channel subscriber count and upload velocity for media companies
 - Social media follower trajectory: LinkedIn company page growth signals hiring/expansion
 - Google Trends: "[Company] streaming" rising = demand outpacing current platform
 
@@ -155,114 +188,57 @@ New vertical entry        → New UX paradigm needed     → No internal experti
 
 [PHASE 1: RESEARCH WATERFALL — EXECUTE PER PROSPECT]
 
-For every candidate company, run these steps using live search:
-
 STEP 1 — COMMERCIAL TRIGGER SCAN
 Search: "[Company] OTT launch 2025 2026", "[Company] sports rights 2025 2026",
 "[Company] AVOD 2025", "[Company] acquisition 2024 2025", "[Company] investor day streaming",
 "[Company] CTV expansion", "[Company] connected TV", "[Company] new platform"
-Extract: any technology commitment with a deadline ("go-live", "by Q3", "H1 launch")
-OR any ambition statement without a confirmed platform ("we plan to expand to all screens")
 
 STEP 2 — DOCUMENT DEEP DIVE
-Fetch the IR page or company blog. Look for: "platform unification", "infrastructure
-migration", "streaming expansion", dollar figures on tech spend, named OEM targets
-without confirmed launches, content investment announcements.
+Fetch the IR page or company blog. Look for platform commitments, tech spend, OEM targets.
 
 STEP 3 — TALENT VOID MAPPING
-Search job boards for senior OTT AND platform expansion roles. For EACH role found:
-  - Title and seniority level
-  - Tech keywords in the JD (Tizen, WebOS, SSAI, HLS, CTV, connected TV etc.)
-  - Estimated days the role has been open
-  - Source URL of the job posting
+Search job boards for senior OTT AND platform expansion roles. Record title, tech keywords,
+estimated days open, and source URL for each role found.
 
 SCORING RULES:
   3+ senior OTT roles open simultaneously → Talent Void flag = TRUE → +20 pts
   Any senior OTT role open >60 days → Hiring failure flag → additional +10 pts
-  Expansion-intent roles (Head of CTV, VP Distribution) with no platform = +10 pts
-
-CRITICAL: The >60 day rule only applies if you can confirm approximate posting age.
-Do NOT assume >60 days without evidence. Include roles with unknown age and mark them.
-Estimated days open MUST appear in the signal evidence field.
+  Expansion-intent roles with no platform = +10 pts
 
 STEP 4 — TECH STACK FINGERPRINTING
-Search: "[Company] powered by" OR "built on" + streaming vendor, engineering blog, job postings.
 Identify: video player, CDN, OVP, DRM, SSAI, incumbent vendor.
-For TYPE B companies: identify what they currently have (mobile app? web only? YouTube?
-social only?) to map the gap to what Accedo builds.
+For TYPE B: identify current platform footprint to map the gap.
 
 STEP 5 — ACTIVE FRICTION SCAN
 X complaints, app store ratings, Downdetector.
-For TYPE B companies with no app yet: note absence of CTV/OTT presence explicitly.
 
-STEP 6 — GROWTH VELOCITY SCAN (NEW — required for TYPE B leads)
-Search: "[Company] app downloads" OR "[Company] app ranking" on data.ai or Sensor Tower
-Search: "[Company]" YouTube subscribers/uploads if media company
-Search: "[Company] funding" site:crunchbase.com — when was the last round, how much
-Search: "[Company] expansion" OR "[Company] new market" 2024 2025 2026
-Look for: content investment announcements, geographic expansion, new device targets,
-partnership deals that imply platform needs, social media follower trajectory
-A company with 500k TikTok followers and no CTV app is a TYPE B lead.
+STEP 6 — GROWTH VELOCITY SCAN (required for TYPE B leads)
+Search app download rankings, YouTube subscribers, social trajectory, funding history,
+expansion announcements, partnership deals that imply platform needs.
 
 STEP 7 — POWER MAP VERIFICATION
-Find TWO contacts per prospect — one Visionary, one Operator. These are different roles
-depending on company type. Do NOT default to CTO + VP Engineering for every company.
+Find TWO contacts per prospect — one Visionary, one Operator.
 
-VISIONARY (strategic decision-maker who signs the budget):
-  Sports RSN / broadcaster:   President of Digital | CEO of network entity | EVP Digital Media
-  Streaming startup:          CEO | Chief Product Officer | President
-  Media conglomerate:         SVP Digital | Chief Digital Officer | EVP Streaming
-  Telco / ISP:               VP Digital Services | Head of OTT | Chief Digital Officer
-  Growth-stage company:       CEO | CPO | Head of Product | VP of Distribution
-  Search: "[Company] President Digital" OR "[Company] CEO" OR "[Company] CPO" site:linkedin.com
+VISIONARY: President of Digital | CEO | CPO | SVP Digital | Chief Digital Officer
+OPERATOR:  CTO | VP Engineering | Head of Engineering | VP Technology
 
-OPERATOR (technical decision-maker who owns the build):
-  Sports RSN / broadcaster:   CTO | VP Engineering | Head of Technology | VP Platform
-  Streaming startup:          CTO | VP Engineering | Head of Product Engineering
-  Growth-stage (no CTO):      Head of Engineering | Lead Engineer | VP Technology
-  Search: "[Company] CTO" OR "[Company] VP Engineering" OR "[Company] Head of Engineering"
-  site:linkedin.com
-
-For EACH contact found:
-  1. Verify role is current as of {today}
-  2. Retrieve their LinkedIn profile URL — exact URL, do not guess patterns
-  3. Find one public quote about OTT/technology/platform strategy
-  4. Set verified: true ONLY if LinkedIn URL is directly confirmed, not inferred
-
-CRITICAL — BOTH CONTACTS ARE MANDATORY:
-  If you cannot find the Visionary, DOCUMENT WHY in research_gaps.
-  If a LinkedIn URL CANNOT be confirmed: return "" — never guess URL patterns.
+For each: verify current role, get LinkedIn URL, find one public quote about strategy.
+Set verified: true ONLY if LinkedIn URL is directly confirmed.
 
 STEP 8 — COMPETITOR CUSTOMER MINING
-Search BEFORE the contract renews or platform shows public failure:
-
 Search patterns:
-- "powered by ViewLift" OR "ViewLift customer" site:linkedin.com OR site:github.com
+- "powered by ViewLift" OR "ViewLift customer" site:linkedin.com
 - "built on 24i" OR "24i platform" streaming company 2024 2025 2026
 - "3SS white label" OR "3SS OTT" customer client broadcast
 - "OTTera platform" OR "powered by OTTera" streaming 2025 2026
-- "[Company] ViewLift" OR "[Company] 24i" site:linkedin.com/jobs
 
 DISPLACEMENT SCORING BONUS:
-+15 if confirmed 3SS customer (weak Tizen/WebOS depth)
-+15 if confirmed 24i customer (thin sports/live, slow releases, bankruptcy)
-+15 if confirmed ViewLift customer (aging infra, poor OEM support, DAZN purchase)
-+10 if confirmed OTTera customer (commoditised, no bespoke)
-+10 if confirmed Endeavor Streaming customer (high TCO, lock-in)
++15 if confirmed 3SS customer | +15 if confirmed 24i | +15 if confirmed ViewLift
++10 if confirmed OTTera | +10 if confirmed Endeavor Streaming
 
 STEP 9 — CONTRACTUAL TRIGGER CALENDAR
-Rights deals and platform contracts create hard deadlines. Ideal Accedo entry
-window is 6-18 months BEFORE the go-live date.
-
-Search patterns:
-- "[Company] rights deal" expiry OR renewal OR extension 2025 2026 2027
-- "[Company] streaming rights" exclusive launch deadline contract
-- "[Company]" site:sportico.com OR site:sportspromedia.com rights deal 2025 2026
-
-Extract:
-- Rights deal start year → calculate 3-5 year renewal cycle → predict window
-- Named launch deadline ("live by Q3 2026") → months remaining from today
-- Olympics cycle (Summer 2028, Winter 2026) → any broadcaster with rights = window
+Search: "[Company] rights deal" expiry OR renewal 2025 2026 2027
+Extract rights deal timelines, launch deadlines, Olympics cycle implications.
 
 ---
 
@@ -278,41 +254,28 @@ TYPE A — PAIN SIGNAL SCORING:
 +10 Contractual Window — rights deal or launch deadline within 6-18 months
 
 TYPE B — GROWTH CATALYST SCORING:
-+25 Expansion Signal — confirmed new vertical, geography, or device category launch
-    with no existing platform capability to support it
-+20 Ambition Gap — public roadmap commitment exceeds current platform capability
-    (OEM targets announced, no CTV apps exist, social audience with no OTT home)
-+15 Funding Catalyst — Series A/B closed in last 6 months, platform expansion is
-    an obvious next investor milestone
-+15 Competitive Pressure — closest competitor just launched on Tizen/Roku/WebOS
-    and this company has no equivalent CTV presence
-+10 Content Investment — significant content spend or original programming announced
-    with no corresponding platform investment visible
-+10 Growth Velocity — measurable audience growth (app downloads, social followers,
-    YouTube subscribers) that will require platform infrastructure within 12 months
++25 Expansion Signal — confirmed new vertical/geography/device with no platform capability
++20 Ambition Gap — public roadmap exceeds current platform capability
++15 Funding Catalyst — Series A/B closed in last 6 months
++15 Competitive Pressure — closest competitor just launched on CTV with no equivalent
++10 Content Investment — significant content spend with no platform investment visible
++10 Growth Velocity — measurable audience growth requiring platform infrastructure
 
 SCORING RULES:
 - Score > 70 requires at least 2 verified Tier 1 or Tier 2 signals (TYPE A)
   OR 2 verified Growth Catalyst signals with clear timeline evidence (TYPE B)
-- Score > 85 requires a confirmed go-live date or contractual deadline (TYPE A)
-  OR confirmed funding + public expansion commitment with named OEM targets (TYPE B)
+- Score > 85 requires confirmed go-live date (TYPE A) or confirmed funding + OEM targets (TYPE B)
 - If Power Map contacts are unverified, cap score at 65
 - Apply -20 Vertical Integration Penalty for strong "build-first" posture
-  WAIVE if their internal build is visibly failing (missed deadlines, low ratings,
-  unfilled roles >60d) OR if they have never built OTT before (TYPE B)
+  WAIVE if build is visibly failing OR company has never built OTT before (TYPE B)
 
 TRANSITION GAP CALCULATION — CRITICAL:
-Today's date is {today}. All transition_gap_timer values MUST be calculated from
-THIS date. Show your arithmetic inline:
-  TYPE A example: "Olympics open July 26 2028. From {today} = X months total.
-  Crisis window starts 6 months before go-live = Y months of usable runway."
-  TYPE B example: "Series A closed March 2026. Typical 12-18 month build decision
-  window = Accedo must engage by September 2026 before in-house build begins."
-A gap anchored to the wrong date gives the Sales Director a false urgency signal.
+Today's date is {today}. All transition_gap_timer values MUST be calculated from THIS date.
+Show arithmetic inline. A wrong date = disqualifying error.
 
 ADVERSARIAL CHECK — required for every signal:
-(a) Strongest argument this is a real, actionable opportunity
-(b) Strongest argument this is noise, premature, or not winnable
+(a) Strongest argument this is real and actionable
+(b) Strongest argument this is noise or not winnable
 
 ---
 
@@ -322,17 +285,14 @@ HARD RULES:
 1. Return a single valid JSON object. Zero pre-text. Zero post-text. Zero markdown fences.
 2. Do NOT use <grok:render>, <cite>, [1], [2], or any bracket citations.
 3. Cite sources as plain text in parentheses: (Source: sec.gov, 2025-03-15)
-4. If a LinkedIn URL CANNOT be verified: return "" — never guess, never use placeholders.
+4. If a LinkedIn URL CANNOT be verified: return "" — never guess.
 5. Aim for {max_prospects} high-quality prospects. Quality beats quantity.
 6. Every signal must have a traceable source_url or source_type.
-7. SIGNAL CONTAINMENT: Every piece of intelligence MUST be in signals[]. No exceptions.
-8. APP INTELLIGENCE: Search BOTH iOS App Store and Google Play Store ratings separately.
-   For TYPE B companies with no app: set both ratings to null and note in research_gaps.
-9. PARENT ORGANISATION: Capture parent org name and domain in parent_org field.
-10. PROSPECT TYPE: Every prospect must be classified as "TYPE_A" or "TYPE_B" in the
-    opportunity_type field. This tells the Sales Director which playbook to run.
-    TYPE B prospects MUST be included when the query implies emerging companies or new
-    verticals — do not discard them for lacking pain signals.
+7. SIGNAL CONTAINMENT: Every piece of intelligence MUST be in signals[].
+8. APP INTELLIGENCE: Search BOTH iOS and Android. Null if not found, document in gaps.
+9. PARENT ORGANISATION: Capture parent org in parent_org field.
+10. PROSPECT TYPE: Classify every prospect as TYPE_A or TYPE_B.
+    TYPE B prospects MUST be included for emerging company queries.
 
 {{
   "prospects": [
@@ -341,8 +301,8 @@ HARD RULES:
       "domain": "companydomain.com",
       "prospect_type": "TYPE_A | TYPE_B",
       "parent_org": {{
-        "name": "Parent company name if subsidiary, empty string if independent",
-        "domain": "parentdomain.com or empty string"
+        "name": "",
+        "domain": ""
       }},
       "handle": "@twitterhandle_or_empty_string",
       "opportunity_score": 0,
@@ -352,20 +312,20 @@ HARD RULES:
       "incumbent_vendor_confirmed": {{
         "vendor": "ViewLift | 24i | 3SS | OTTera | Endeavor | Quickplay | none | unknown",
         "confidence": "high | medium | low | unconfirmed",
-        "evidence": "Source URL or job posting that confirms the incumbent",
-        "displacement_angle": "Specific reason this incumbent fails for their exact use case"
+        "evidence": "",
+        "displacement_angle": ""
       }},
       "contractual_trigger": {{
         "type": "rights_deal | franchise | launch_deadline | contract_renewal | funding_milestone | unknown",
         "deadline": "YYYY-MM or unknown",
         "months_remaining": 0,
         "in_ideal_window": true,
-        "source": "URL or description"
+        "source": ""
       }},
-      "current_platform_footprint": "What platforms/devices they currently have (mobile, web, YouTube, social only, CTV, etc.) — critical for TYPE B leads",
-      "scoring_breakdown": "Point-by-point with signal type label: +25 Expansion Signal (500k TikTok, zero CTV apps confirmed)...",
-      "causal_inflection": "TYPE A: Trigger → predicted failure → revenue risk. TYPE B: Growth trigger → platform need → Accedo entry window.",
-      "transition_gap_timer": "Calculated from today with arithmetic shown inline",
+      "current_platform_footprint": "What platforms/devices they currently have",
+      "scoring_breakdown": "Point-by-point with signal type labels",
+      "causal_inflection": "TYPE A: Trigger → failure → risk. TYPE B: Growth trigger → platform need → entry window.",
+      "transition_gap_timer": "Calculated from today with arithmetic shown",
       "tech_stack_fingerprint": {{
         "video_player": "",
         "cdn": "",
@@ -373,23 +333,23 @@ HARD RULES:
         "drm": "",
         "ssai": "",
         "incumbent_vendor": "",
-        "incumbent_displacement_angle": "Specific reason this incumbent fails for their exact use case"
+        "incumbent_displacement_angle": ""
       }},
       "app_intelligence": {{
         "ios_rating": 0.0,
         "android_rating": 0.0,
-        "top_complaint_themes": ["login failures", "buffering on Roku"],
-        "sample_review_quote": "Direct quote from a 1-2 star review",
+        "top_complaint_themes": [],
+        "sample_review_quote": "",
         "update_frequency": "weekly | monthly | quarterly | unknown",
-        "download_velocity": "Any available data on download rank or growth trajectory"
+        "download_velocity": ""
       }},
       "growth_intelligence": {{
-        "social_audience": "Estimated combined social following across platforms",
-        "youtube_subscribers": "If applicable",
+        "social_audience": "",
+        "youtube_subscribers": "",
         "funding_stage": "Pre-seed | Seed | Series A | Series B | Series C+ | Public | Unknown",
-        "last_funding_date": "YYYY-MM or unknown",
-        "last_funding_amount": "Dollar amount or unknown",
-        "geographic_expansion": "Any announced or implied geographic expansion plans"
+        "last_funding_date": "",
+        "last_funding_amount": "",
+        "geographic_expansion": ""
       }},
       "power_map": {{
         "the_visionary": {{
@@ -397,9 +357,9 @@ HARD RULES:
           "title": "",
           "linkedin": "",
           "verified": false,
-          "public_quote": "Their actual words about OTT/platform/growth strategy",
-          "quote_source": "URL or platform where quote was found",
-          "angle": "Strategic hook using their own words as the opener"
+          "public_quote": "",
+          "quote_source": "",
+          "angle": ""
         }},
         "the_operator": {{
           "name": "",
@@ -408,7 +368,7 @@ HARD RULES:
           "verified": false,
           "public_quote": "",
           "quote_source": "",
-          "angle": "Technical hook tied to their specific stack gap or build challenge"
+          "angle": ""
         }}
       }},
       "signals": [
@@ -417,55 +377,55 @@ HARD RULES:
           "source_url": "https://...",
           "source_type": "SEC filing | earnings call | job post | press release | app review | X post | funding announcement | social data | industry press",
           "date": "YYYY-MM-DD",
-          "evidence": "Direct quote or specific data point. Include the source inline.",
-          "days_open": "Estimated days role has been open, or 'unknown'. Required for job post signals.",
+          "evidence": "",
+          "days_open": "unknown",
           "verified": true,
           "confidence": "high | medium | low",
-          "strategic_impact": "What this means for Accedo's entry point",
-          "for": "Strongest argument this is real and actionable",
-          "against": "Strongest argument this is noise or not winnable"
+          "strategic_impact": "",
+          "for": "",
+          "against": ""
         }}
       ],
       "outreach": {{
         "visionary": {{
           "channel": "LinkedIn InMail | Email",
-          "subject_line": "Specific, curiosity-gap subject — not generic",
-          "hook": "TYPE A: Kill-Shot opener using pain evidence. TYPE B: Ambition-mirroring opener using their own growth language.",
-          "risk_quantification": "TYPE A: Financial/contractual risk of delay. TYPE B: Cost of building wrong or building late.",
-          "accedo_position": "Accelerant framing — we've done this before, here's the proof",
-          "call_to_action": "Specific, low-friction next step — not 'let's jump on a call'"
+          "subject_line": "",
+          "hook": "",
+          "risk_quantification": "",
+          "accedo_position": "",
+          "call_to_action": ""
         }},
         "operator": {{
           "channel": "Email | LinkedIn",
           "subject_line": "",
-          "hook": "Technical observation tied to their specific stack gap or build challenge",
-          "technical_evidence": "Specific Accedo capability or benchmark for their exact problem",
-          "accedo_proof_point": "Closest analogous delivery: platform, timeframe, outcome",
-          "call_to_action": "Architecture review | TCO analysis | 2-week POC scope offer"
+          "hook": "",
+          "technical_evidence": "",
+          "accedo_proof_point": "",
+          "call_to_action": ""
         }},
         "objection_stack": [
           {{
             "objection": "We're building this in-house",
-            "counter": "Evidence-backed counter using their own job posting data or missed deadlines",
-            "counter_evidence_source": "URL or description of the evidence"
+            "counter": "",
+            "counter_evidence_source": ""
           }},
           {{
             "objection": "We already have a vendor",
-            "counter": "Specific failure mode of their incumbent for this exact use case",
+            "counter": "",
             "counter_evidence_source": ""
           }},
           {{
             "objection": "Budget / timing isn't right",
-            "counter": "The contractual, funding, or competitive trigger that makes delay more expensive than action",
+            "counter": "",
             "counter_evidence_source": ""
           }}
         ],
-        "salesforce_note": "Max 50 words. Plain text. Prospect type (A/B), trigger event, score, top gap, recommended next action."
+        "salesforce_note": "Max 50 words. Plain text. Type A/B, trigger, score, gap, next action."
       }},
-      "sales_playbook_markdown": "### Sales Playbook — [Company]\\n\\n**Score: X/100 | Type: A/B | Priority: Y | Entry Window: Z weeks**\\n\\n#### Top Signals\\n| Signal | Type | Confidence | Impact |\\n|---|---|---|---|\\n\\n#### The Opportunity\\n- Type: TYPE_A (Pain) or TYPE_B (Growth)\\n- Trigger: ...\\n- Gap: ...\\n- Risk/Window: ...\\n\\n#### Competitive Analysis\\n- Incumbent/Current Platform: ...\\n- Failure Mode/Gap: ...\\n- Accedo Advantage: ...\\n\\n#### Outreach Plan\\n- Visionary: [hook]\\n- Operator: [hook]\\n\\n#### Pre-Loaded Objection Counters\\n1. In-house: ...\\n2. Incumbent/No platform: ...\\n3. Budget: ..."
+      "sales_playbook_markdown": "### Sales Playbook — [Company]\\n\\n**Score: X/100 | Type: A/B | Priority: Y | Entry Window: Z weeks**"
     }}
   ],
-  "top_recommendation": "Single highest-conviction move for the Sales Director in the next 48 hours. Specific person, specific hook, specific urgency driver. Note whether this is TYPE A or TYPE B. One paragraph.",
+  "top_recommendation": "Single highest-conviction move. Type A or B. Specific person, hook, urgency. One paragraph.",
   "research_gaps": "MANDATORY — document every gap. Empty research_gaps is a schema violation.",
   "run_metadata": {{
     "query": "",
@@ -476,4 +436,4 @@ HARD RULES:
     "avg_confidence": "high | medium | low",
     "sources_searched": []
   }}
-}}"""
+}}{semantic_block}"""

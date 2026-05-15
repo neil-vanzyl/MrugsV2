@@ -21,7 +21,19 @@ def run_research_waterfall(query: str, usage_tracker=None) -> dict:
     if not config.XAI_API_KEY:
         raise ValueError("XAI_API_KEY is not set.")
 
-    system_prompt = build_scout_prompt(max_prospects=config.MAX_PROSPECTS_PER_RUN)
+    press_sources = []
+    try:
+        from core.sheets import SheetsClient
+        sc = SheetsClient()
+        press_sources = sc.get_press_sources()
+    except Exception:
+        pass  # degrade gracefully to hardcoded sources
+
+    system_prompt = build_scout_prompt(
+        max_prospects=config.MAX_PROSPECTS_PER_RUN,
+        press_sources=press_sources or None,
+    )
+
     user_prompt = (
         f"Execute the full OTT intelligence waterfall for: {query}\n\n"
         f"Return ONLY a JSON object following the Phase 3 schema."

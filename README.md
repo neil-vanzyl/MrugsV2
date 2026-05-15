@@ -1,5 +1,44 @@
 # Accedo Strategic Lead Scout
 
+An AI-powered OTT sales intelligence pipeline that discovers, researches, qualifies, and writes personalised outreach for streaming industry prospects. Built for Accedo's sales and business development teams.
+
+---
+
+## How It Works
+
+The pipeline runs in two tracks:
+
+### 🔍 Discovery Track
+Find companies you don't know about yet. Gemini + Exa discover relevant companies from LinkedIn before Grok researches them deeply.
+
+1. **Gemini** — translates your query into optimised LinkedIn search strings
+2. **Exa** — finds relevant companies on LinkedIn matching the query
+3. **Gemini** — creatively scores and selects the top 5 companies for deep research
+4. **Grok-4** — deep research waterfall per company (SEC filings, job boards, app stores, press, X/Twitter)
+5. **Apollo** — validates power map contacts, enriches with verified emails and LinkedIn URLs
+6. **Exa** — fetches LinkedIn post intelligence per exec for personalised outreach openers
+7. **Claude Sonnet** — qualifies each prospect with a score and HOT/WARM/COLD verdict
+8. **Claude Opus** — drafts two personalised outreach emails per prospect
+9. **Google Sheets** — writes results to Leads or Cold Leads tab with full intelligence
+
+### 📋 Account Intelligence Track
+Research companies you already care about. Import a prospect list and run deep intelligence on each account — discovery is skipped, Grok researches each named account directly.
+
+---
+
+## Business Unit Support
+
+All runs are tagged with a Business Unit (NAM / E&L / APAC). The BU selector in the sidebar defaults to NAM and affects both tracks:
+
+- **Discovery** — all results written to Sheets with the selected BU tag
+- **Account Intelligence** — only accounts tagged with the selected BU are researched
+
+---
+
+## Prerequisites
+
+- Python 3.11 or # Accedo Strategic Lead Scout
+
 An AI-powered OTT sales intelligence pipeline that researches, qualifies, and writes personalised outreach for streaming industry prospects. Built for Accedo's Director of Strategic Accounts.
 
 ---
