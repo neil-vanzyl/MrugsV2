@@ -813,6 +813,9 @@ else:
         if suggest_btn:
             prompts = _load_suggested_prompts()
             st.session_state["suggested_prompt"] = random.choice(prompts)
+            # Clear any previous discovery state when a new prompt is suggested
+            st.session_state.pop("discovery_result", None)
+            st.session_state.pop("selected_companies", None)
 
         query = st.text_input(
             "Discovery Scope",
@@ -820,62 +823,191 @@ else:
             placeholder="e.g., Regional sports networks migrating from ViewLift 2026...",
             help=(
                 "Describe the OTT pain signal or company type to hunt for. "
-                "Grok will search SEC filings, job boards, app stores, and industry press."
+                "Gemini + Exa will find companies, then you select which ones Grok researches."
             ),
             key="discovery_query",
         )
 
-        run_btn = st.button(
-            "🚀 Start Research Waterfall",
-            type="primary",
+        # Clear discovery state if query changes
+        if query != st.session_state.get("last_query", ""):
+            st.session_state.pop("discovery_result", None)
+            st.session_state.pop("selected_companies", None)
+            st.session_state["last_query"] = query
+
+        find_btn = st.button(
+            "🔍 Find Companies",
             use_container_width=True,
-            key="run_btn",
+            key="find_btn",
+            disabled=not query,
         )
 
-        if run_btn:
-            if not query:
-                st.warning("Please enter a discovery scope or click 💡 Suggest Prompt first.")
+        # ---- Stage 0: Find companies ----
+        if find_btn:
+            log_stream = st.session_state.get("log_stream")
+            if log_stream:
+                log_stream.truncate(0)
+                log_stream.seek(0)
+
+            with st.status("🔍 Gemini + Exa finding companies…", expanded=True) as status:
+                try:
+                    disc = main.run_discovery(query, bu=bu)
+                    st.session_state["discovery_result"] = disc
+                    st.session_state.pop("selected_companies", None)
+                    found = disc.get("discovery", {}).get("all_found", [])
+                    status.update(
+                        label=f"✅ Found {len(found)} companies — select up to 5 below",
+                        state="complete",
+                        expanded=False,
+                    )
+                except Exception as exc:
+                    status.update(label="❌ Discovery error", state="error", expanded=True)
+                    st.error(f"**Error:** {exc}")
+                    st.exception(exc)
+
+        # ---- Company selection UI ----
+        disc_result = st.session_state.get("discovery_result")
+
+        if disc_result:
+            discovery = disc_result.get("discovery", {})
+            all_found = discovery.get("all_found", [])
+            gemini_scored = discovery.get("selected", [])  # Gemini's top picks
+            rejected = discovery.get("rejected", [])
+
+            if not all_found:
+                st.warning(
+                    "⚠️ Exa found no companies for this query. "
+                    "Try rephrasing — use company category keywords rather than product format names."
+                )
             else:
-                st.session_state["view_mode"] = "run"
-                log_stream = st.session_state.get("log_stream")
-                if log_stream:
-                    log_stream.truncate(0)
-                    log_stream.seek(0)
+                st.divider()
+                st.subheader(f"🔍 Exa found {len(all_found)} companies")
+                st.caption(
+                    f"Gemini pre-selected {len(gemini_scored)} — "
+                    f"select up to 5 for Grok deep research. "
+                    f"Gemini's picks are pre-checked."
+                )
 
-                with st.status(
-                    f"Researching: *{query[:80]}{'…' if len(query) > 80 else ''}*",
-                    expanded=True,
-                ) as status:
-                    st.write("🔍 Gemini + Exa company discovery → Grok research waterfall…")
-                    try:
-                        results = main.run_pipeline(query, dry_run=is_dry_run, bu=bu)
-                        status.update(label="✅ Research complete!", state="complete", expanded=False)
-                    except Exception as exc:
-                        status.update(label="❌ Pipeline error", state="error", expanded=True)
-                        st.error(f"**Error:** {exc}")
-                        st.exception(exc)
-                        results = []
+                # Build a lookup of Gemini's reasoning by company name
+                gemini_map = {
+                    c.get("name", ""): {
+                        "reasoning":   c.get("reasoning", ""),
+                        "signal_type": c.get("signal_type", ""),
+                    }
+                    for c in gemini_scored
+                }
+                gemini_names = set(gemini_map.keys())
 
-                if not results or (len(results) == 1 and not results[0].get("company")):
-                    stub = results[0] if results else {}
-                    discovery_meta = stub.get("discovery_meta", {})
-                    st.session_state["last_discovery_meta"] = discovery_meta
-                    if discovery_meta.get("discovery_ran") and not discovery_meta.get("selected"):
-                        st.warning(
-                            "⚠️ Discovery ran but Gemini found no companies worth researching. "
-                            "Try rephrasing — use company category keywords rather than product format names."
+                # Initialise selection state — pre-check Gemini's picks
+                if "company_selections" not in st.session_state:
+                    st.session_state["company_selections"] = {
+                        c.get("name", ""): c.get("name", "") in gemini_names
+                        for c in all_found
+                    }
+
+                selected_count = sum(st.session_state["company_selections"].values())
+
+                # Display each company as a checkbox row
+                for company in all_found:
+                    name = company.get("name", "")
+                    li   = company.get("linkedin_url", "")
+                    g    = gemini_map.get(name, {})
+                    reasoning   = g.get("reasoning", "")
+                    signal_type = g.get("signal_type", "")
+                    is_gemini   = name in gemini_names
+
+                    col_check, col_info = st.columns([1, 8])
+                    with col_check:
+                        current = st.session_state["company_selections"].get(name, False)
+                        # Disable checkbox if at limit and not already selected
+                        disabled = (selected_count >= 5 and not current)
+                        checked = st.checkbox(
+                            "",
+                            value=current,
+                            key=f"sel_{name}",
+                            disabled=disabled,
+                            label_visibility="collapsed",
                         )
-                    elif discovery_meta.get("discovery_ran") and discovery_meta.get("selected"):
-                        st.warning(
-                            "⚠️ Gemini selected companies but Grok found no qualifying prospects. "
-                            "Companies may be too early-stage or outside Grok's search coverage."
-                        )
-                    else:
-                        st.warning(
-                            "⚠️ No prospects found. Try a different scope or use 💡 Suggest Prompt."
-                        )
-                elif results:
-                    _display_results(results, is_dry_run, query, bu)
+                        st.session_state["company_selections"][name] = checked
+                        if checked != current:
+                            st.rerun()
+
+                    with col_info:
+                        name_md = f"[{name}]({li})" if li else name
+                        gemini_badge = " 🤖 Gemini pick" if is_gemini else ""
+                        if reasoning:
+                            st.markdown(
+                                f"**{name_md}**{gemini_badge}  \n"
+                                f"*{signal_type}* — {reasoning}"
+                            )
+                        else:
+                            st.markdown(f"**{name_md}**")
+
+                # Recount after potential rerun
+                selected_count = sum(
+                    v for v in st.session_state["company_selections"].values()
+                )
+                st.caption(f"{selected_count}/5 selected")
+
+                if rejected:
+                    with st.expander(f"❌ {len(rejected)} companies filtered out by Gemini", expanded=False):
+                        for r in rejected:
+                            st.caption(f"**{r.get('name')}** — {r.get('reason', '')}")
+
+                st.divider()
+
+                # Build the selected list
+                selected_companies = [
+                    c for c in all_found
+                    if st.session_state["company_selections"].get(c.get("name", ""), False)
+                ]
+
+                research_btn = st.button(
+                    f"🚀 Research {selected_count} Selected {'Company' if selected_count == 1 else 'Companies'}",
+                    type="primary",
+                    use_container_width=True,
+                    key="research_btn",
+                    disabled=selected_count == 0,
+                )
+
+                if research_btn:
+                    st.session_state["view_mode"] = "run"
+                    log_stream = st.session_state.get("log_stream")
+                    if log_stream:
+                        log_stream.truncate(0)
+                        log_stream.seek(0)
+
+                    with st.status(
+                        f"Researching {selected_count} selected {'company' if selected_count == 1 else 'companies'}…",
+                        expanded=True,
+                    ) as status:
+                        st.write("🔍 Grok deep research waterfall running…")
+                        try:
+                            results = main.run_pipeline_from_selection(
+                                query=query,
+                                bu=bu,
+                                selected_companies=selected_companies,
+                                run_id=disc_result.get("run_id", ""),
+                                dry_run=is_dry_run,
+                                discovery=discovery,
+                            )
+                            status.update(
+                                label="✅ Research complete!",
+                                state="complete",
+                                expanded=False,
+                            )
+                        except Exception as exc:
+                            status.update(label="❌ Pipeline error", state="error", expanded=True)
+                            st.error(f"**Error:** {exc}")
+                            st.exception(exc)
+                            results = []
+
+                    if not results or (len(results) == 1 and not results[0].get("company")):
+                        st.warning("⚠️ Grok found no qualifying prospects for the selected companies.")
+                    elif results:
+                        # Clear discovery state after successful run
+                        st.session_state.pop("discovery_result", None)
+                        st.session_state.pop("company_selections", None)
+                        _display_results(results, is_dry_run, query, bu)
 
         elif suggest_btn:
             pass

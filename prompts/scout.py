@@ -266,7 +266,7 @@ SCORING RULES:
   OR 2 verified Growth Catalyst signals with clear timeline evidence (TYPE B)
 - Score > 85 requires confirmed go-live date (TYPE A) or confirmed funding + OEM targets (TYPE B)
 - If Power Map contacts are unverified, cap score at 65
-- Apply -20 Vertical Integration Penalty for strong "build-first" posture
+- Apply -20 Vertical Integration Penalty for strong "build-first" posture, but only for Tier 1's like Netflix or Disney
   WAIVE if build is visibly failing OR company has never built OTT before (TYPE B)
 
 TRANSITION GAP CALCULATION — CRITICAL:

@@ -534,7 +534,185 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
         r["usage_summary"] = usage_summary
     return summary
 
+# ---------------------------------------------------------------------------
+# discovery pipeline run
+# 
 
+def run_discovery(query: str, bu: str = "") -> dict:
+    """
+    Stage 0 only — run Gemini + Exa company discovery.
+    Returns discovery metadata for the GUI to display the selection UI.
+    Does NOT run Grok or any downstream steps.
+    """
+    logger.info(f"\n{'='*65}")
+    logger.info(f"Discovery: '{query}' | BU={bu}")
+    logger.info(f"{'='*65}")
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    usage  = RunUsage(query)
+    sheets = SheetsClient()
+
+    usage.start_prospect("_grok_research")
+
+    logger.info("Stage 0: Company Discovery (Gemini + Exa)...")
+    discovery = discover_companies(
+        query,
+        usage_tracker=usage,
+        sheets=sheets,
+        run_id=run_id,
+    )
+    usage.end_prospect()
+
+    return {
+        "run_id":         run_id,
+        "query":          query,
+        "bu":             bu,
+        "discovery":      discovery,
+        "usage":          usage,
+        "sheets":         sheets,
+    }
+
+
+# ---------------------------------------------------------------------------
+# pipeline selectoin run
+# ---------------------------------------------------------------------------
+
+def run_pipeline_from_selection(
+    query: str,
+    bu: str,
+    selected_companies: list,
+    run_id: str,
+    dry_run: bool = False,
+    discovery: dict = None,
+) -> List[dict]:
+    """
+    Stages 1-6 — run Grok + enrichment + qualification + outreach + Sheets write
+    for a user-selected list of companies.
+
+    Args:
+        query:              Original user query
+        bu:                 Business unit
+        selected_companies: List of dicts with 'name' and 'linkedin_url'
+        run_id:             Run ID from run_discovery()
+        dry_run:            Skip Sheets writes if True
+        discovery:          Full discovery dict from run_discovery()
+    """
+    logger.info(f"\n{'='*65}")
+    logger.info(f"Pipeline from selection: {len(selected_companies)} companies | BU={bu}")
+    logger.info(f"{'='*65}")
+
+    usage  = RunUsage(query)
+    sheets = SheetsClient()
+    summary = []
+
+    # Build discovery metadata for GUI
+    discovery_meta = {
+        "discovery_ran":  discovery.get("discovery_ran", False) if discovery else False,
+        "gemini_ran":     discovery.get("gemini_ran", False) if discovery else False,
+        "all_found":      discovery.get("all_found", []) if discovery else [],
+        "selected":       [{"name": c.get("name", ""), "linkedin_url": c.get("linkedin_url", ""), "reasoning": c.get("reasoning", ""), "signal_type": c.get("signal_type", "")} for c in selected_companies],
+        "rejected":       discovery.get("rejected", []) if discovery else [],
+        "search_strings": discovery.get("search_strings", []) if discovery else [],
+    }
+
+    exa_rejected_str = ", ".join(
+        r.get("name", "") for r in (discovery.get("rejected", []) if discovery else [])
+    )
+
+    gemini_reasonings = {
+        c.get("name", ""): c.get("reasoning", "")
+        for c in selected_companies
+    }
+
+    bu_context = {
+        "NAM":  "Prioritise companies headquartered in North America (US, Canada, Mexico).",
+        "E&L":  "Prioritise companies headquartered in Europe or Latin America.",
+        "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
+    }.get(bu, "")
+
+    # Stage 1 — Grok researches each selected company
+    usage.start_prospect("_grok_research")
+    t0 = time.monotonic()
+
+    try:
+        all_prospects = []
+        for company in selected_companies:
+            name = company.get("name", "")
+            if not name:
+                continue
+            named_query = (
+                f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
+                f"ORIGINAL DISCOVERY CONTEXT: {query}\n\n"
+                f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
+                f"Based on that context, research whichever is most relevant:\n"
+                f"- If they have an existing OTT platform: technology infrastructure, "
+                f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
+                f"- If they are pre-platform or mobile-only: content strategy, social "
+                f"audience size, funding history, current distribution platforms, "
+                f"CTV ambition signals, platform expansion announcements\n\n"
+                f"Return intelligence specifically about {name}, not similar companies. "
+                f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst)."
+            )
+            grok_result = run_research_waterfall(named_query, usage_tracker=usage)
+            all_prospects.extend(grok_result.get("prospects", []))
+
+        prospects = all_prospects
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        cur = usage._prospects[0] if usage._prospects else None
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Grok", status="OK",
+            detail=(
+                f"{len(prospects)} prospect(s) returned | "
+                f"user_selected={len(selected_companies)} | bu={bu}"
+            ),
+            tokens_in=cur.grok_input_tokens if cur else 0,
+            tokens_out=cur.grok_output_tokens if cur else 0,
+            duration_ms=duration_ms,
+        )
+
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Grok", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
+        usage.end_prospect()
+        logger.error(f"Grok waterfall failed: {exc}")
+        return [{"error": str(exc), "company": "", "domain": "",
+                 "discovery_meta": discovery_meta}]
+
+    usage.end_prospect()
+
+    if not prospects:
+        logger.warning("Grok returned no prospects.")
+        return [{"error": None, "company": "", "domain": "",
+                 "discovery_meta": discovery_meta}]
+
+    logger.info(f"Grok returned {len(prospects)} prospect(s) — enriching + qualifying now\n")
+
+    # Stages 2-6 per prospect
+    for i, prospect in enumerate(prospects, 1):
+        company = prospect.get("name", "?")
+        logger.info(f"[{i}/{len(prospects)}] {company}")
+        gemini_reasoning = gemini_reasonings.get(company, "")
+        result = process_prospect(
+            prospect, sheets, query, run_id,
+            dry_run=dry_run, usage=usage,
+            exa_rejected=exa_rejected_str,
+            gemini_reasoning=gemini_reasoning,
+            bu=bu,
+        )
+        result["discovery_meta"] = discovery_meta
+        summary.append(result)
+
+    usage.finish()
+    usage.save()
+    usage_summary = usage.summary()
+    for r in summary:
+        r["usage_summary"] = usage_summary
+    return summary
 # ---------------------------------------------------------------------------
 # Account intelligence pipeline run
 # ---------------------------------------------------------------------------
