@@ -22,6 +22,12 @@ Usage:
   python main.py --accounts --bu NAM
 """
 
+from tools.discovery import discover_companies
+from tools.claude_client import qualify_prospect, draft_outreach
+from tools.exa import enrich_prospect_power_map
+from tools.apollo import enrich_power_map, get_contacts_from_power_map
+from tools.grok import run_research_waterfall
+from core.sheets import SheetsClient
 import time
 from datetime import datetime, timezone
 import argparse
@@ -35,13 +41,6 @@ from utils.helpers import setup_logging
 from utils.usage_tracker import RunUsage
 
 logger = logging.getLogger("ott_lead_gen.main")
-
-from core.sheets import SheetsClient
-from tools.grok import run_research_waterfall
-from tools.apollo import enrich_power_map, get_contacts_from_power_map
-from tools.exa import enrich_prospect_power_map
-from tools.claude_client import qualify_prospect, draft_outreach
-from tools.discovery import discover_companies
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +65,7 @@ def process_prospect(
       Apollo → Exa → Claude Sonnet → Claude Opus → Sheets
     """
     company = prospect.get("name", "unknown")
-    domain  = prospect.get("domain", "")
+    domain = prospect.get("domain", "")
     if usage:
         usage.start_prospect(company)
 
@@ -101,7 +100,8 @@ def process_prospect(
                 step="Apollo", status="SKIPPED",
                 detail="One or both API keys missing",
             )
-            logger.warning("Apollo is ENABLED but one or both API keys are missing.")
+            logger.warning(
+                "Apollo is ENABLED but one or both API keys are missing.")
         else:
             t0 = time.monotonic()
             try:
@@ -126,7 +126,8 @@ def process_prospect(
                     step="Apollo", status="FAILED",
                     error=str(exc), duration_ms=duration_ms,
                 )
-                logger.warning(f"  Apollo: enrichment failed for '{company}': {exc}")
+                logger.warning(
+                    f"  Apollo: enrichment failed for '{company}': {exc}")
 
     # ------------------------------------------------------------------
     # Step 2 — Exa LinkedIn intelligence
@@ -136,7 +137,7 @@ def process_prospect(
     try:
         prospect = enrich_prospect_power_map(prospect, usage_tracker=usage)
         result["prospect"] = prospect
-        pm     = prospect.get("power_map", {})
+        pm = prospect.get("power_map", {})
         vis_li = pm.get("the_visionary", {}).get("linkedin_intel", {})
         ops_li = pm.get("the_operator", {}).get("linkedin_intel", {})
         if vis_li.get("linkedin_posts_found") or ops_li.get("linkedin_posts_found"):
@@ -185,20 +186,23 @@ def process_prospect(
         analyst = qualify_prospect(clean_prospect, usage_tracker=usage)
         duration_ms = int((time.monotonic() - t0) * 1000)
         result["refined_score"] = analyst.get("refined_score")
-        result["verdict"]       = analyst.get("verdict")
-        result["analyst"]       = analyst
+        result["verdict"] = analyst.get("verdict")
+        result["analyst"] = analyst
         score = result["refined_score"]
         override = False
         if score is not None:
-            if score >= 70:   enforced_verdict = "HOT"
-            elif score >= 50: enforced_verdict = "WARM"
-            else:             enforced_verdict = "COLD"
+            if score >= 70:
+                enforced_verdict = "HOT"
+            elif score >= 50:
+                enforced_verdict = "WARM"
+            else:
+                enforced_verdict = "COLD"
             if enforced_verdict != result["verdict"]:
                 logger.warning(
                     f"  Analyst verdict override: Claude said {result['verdict']} "
                     f"but score={score} → forcing {enforced_verdict}"
                 )
-                result["verdict"]  = enforced_verdict
+                result["verdict"] = enforced_verdict
                 analyst["verdict"] = enforced_verdict
                 override = True
         cur = usage._current
@@ -286,7 +290,7 @@ def process_prospect(
             sheets.write_log(
                 run_id=run_id, query=query, company=company, domain=domain,
                 step="Opus", status="OK",
-                detail=f"subj='{emails['visionary_email'].get('subject_line','')[:60]}'",
+                detail=f"subj='{emails['visionary_email'].get('subject_line', '')[:60]}'",
                 tokens_in=cur.opus_input_tokens if cur else 0,
                 tokens_out=cur.opus_output_tokens if cur else 0,
                 cost_usd=(
@@ -322,7 +326,8 @@ def process_prospect(
     if config.APOLLO_ENABLED:
         contacts = get_contacts_from_power_map(prospect)
         if contacts:
-            logger.info(f"  Apollo: {len(contacts)} contact(s) ready for Sheets columns")
+            logger.info(
+                f"  Apollo: {len(contacts)} contact(s) ready for Sheets columns")
 
     # ------------------------------------------------------------------
     # Step 6 — Write to Sheets
@@ -385,10 +390,10 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
         f"Exa={'ON' if config.EXA_ENABLED else 'OFF'}"
     )
 
-    run_id  = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    usage   = RunUsage(query)
-    sheets  = SheetsClient()
-    #sheets._connect()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    usage = RunUsage(query)
+    sheets = SheetsClient()
+    # sheets._connect()
     summary = []
 
     usage.start_prospect("_grok_research")
@@ -417,7 +422,8 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
     }
 
     if discovery.get("discovery_ran") and discovery.get("selected"):
-        company_names = [c.get("name", "") for c in discovery["selected"] if c.get("name")]
+        company_names = [c.get("name", "")
+                         for c in discovery["selected"] if c.get("name")]
         gemini_reasonings = {
             c.get("name", ""): c.get("reasoning", "")
             for c in discovery["selected"]
@@ -442,6 +448,7 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
                 named_query = (
                     f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
                     f"ORIGINAL DISCOVERY CONTEXT: {query}\n\n"
+                    f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
                     f"Based on that context, research whichever is most relevant:\n"
                     f"- If they have an existing OTT platform: technology infrastructure, "
                     f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
@@ -452,7 +459,14 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
                     f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst) "
                     f"based on what you find."
                 )
-                grok_result = run_research_waterfall(named_query, usage_tracker=usage)
+                bu_context = {
+                    "NAM": "Prioritise companies headquartered in North America (US, Canada, Mexico).",
+                    "E&L": "Prioritise companies headquartered in Europe or Latin America.",
+                    "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
+                }.get(bu, "")
+                contextualised_query = f"{query}\n\nHEADQUARTERS CONTEXT: {bu_context}" if bu_context else query
+                grok_result = run_research_waterfall(
+                    contextualised_query, usage_tracker=usage)
                 all_prospects.extend(grok_result.get("prospects", []))
             prospects = all_prospects
             top_recommendation = ""
@@ -496,7 +510,8 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
     if top_recommendation:
         logger.info(f"\n★ TOP PICK: {str(top_recommendation)[:200]}\n")
 
-    logger.info(f"Grok returned {len(prospects)} prospect(s) — enriching + qualifying now\n")
+    logger.info(
+        f"Grok returned {len(prospects)} prospect(s) — enriching + qualifying now\n")
 
     for i, prospect in enumerate(prospects, 1):
         company = prospect.get("name", "?")
@@ -535,7 +550,7 @@ def run_account_pipeline(
     Updates Last Run timestamp on each account after processing.
     """
     sheets = sheets_client or SheetsClient()
-    #sheets._connect()
+    # sheets._connect()
 
     accounts = sheets.get_accounts(bu_filter=bu)
     if not accounts:
@@ -546,21 +561,27 @@ def run_account_pipeline(
     logger.info(f"Account Pipeline: {len(accounts)} account(s) | BU={bu}")
     logger.info(f"{'='*65}")
 
-    run_id  = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    usage   = RunUsage(f"[ACCOUNT] BU={bu}")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    usage = RunUsage(f"[ACCOUNT] BU={bu}")
     all_results = []
 
     for i, account in enumerate(accounts, 1):
-        name   = account.get("Company", "")
+        name = account.get("Company", "")
         domain = account.get("Domain", "")
         if not name:
             continue
 
         logger.info(f"[{i}/{len(accounts)}] {name} ({domain})")
 
+        bu_context = {
+            "NAM": "This company is headquartered in North America.",
+            "E&L": "This company is headquartered in Europe or Latin America.",
+            "APAC": "This company is headquartered in Asia Pacific.",
+        }.get(bu, "")
         # Build context-aware query for account track
         query = (
             f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
+            f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
             f"Research whichever is most relevant:\n"
             f"- If they have an existing OTT platform: technology infrastructure, "
             f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
@@ -669,8 +690,9 @@ def print_report(summary: List[dict]) -> None:
         if r.get("error") and not r.get("company"):
             logger.info(f"  Pipeline error: {r['error']}")
             continue
-        status  = "SKIP" if r.get("skipped") else ("ERR" if r.get("error") else "OK")
-        exa     = "YES" if r.get("exa_enriched") else "no"
+        status = "SKIP" if r.get("skipped") else (
+            "ERR" if r.get("error") else "OK")
+        exa = "YES" if r.get("exa_enriched") else "no"
         written = r.get("rows_written", 0)
         total_written += written
         logger.info(
@@ -692,12 +714,14 @@ def print_report(summary: List[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="OTT Lead Gen — Frontier Edition")
+    parser = argparse.ArgumentParser(
+        description="OTT Lead Gen — Frontier Edition")
 
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--query", "-q", type=str)
     mode.add_argument("--rotate", "-r", action="store_true")
-    mode.add_argument("--prospect", "-p", type=str, action="append", dest="prospects")
+    mode.add_argument("--prospect", "-p", type=str,
+                      action="append", dest="prospects")
     mode.add_argument("--accounts", "-a", action="store_true",
                       help="Run account intelligence pipeline for the specified BU")
 
@@ -727,15 +751,19 @@ def main() -> None:
     all_results = []
 
     if args.query:
-        all_results = run_pipeline(args.query, dry_run=args.dry_run, bu=args.bu)
+        all_results = run_pipeline(
+            args.query, dry_run=args.dry_run, bu=args.bu)
 
     elif args.rotate:
         for i, query in enumerate(config.OTT_SIGNAL_QUERIES, 1):
-            logger.info(f"\n--- Query {i}/{len(config.OTT_SIGNAL_QUERIES)} ---")
-            all_results.extend(run_pipeline(query, dry_run=args.dry_run, bu=args.bu))
+            logger.info(
+                f"\n--- Query {i}/{len(config.OTT_SIGNAL_QUERIES)} ---")
+            all_results.extend(run_pipeline(
+                query, dry_run=args.dry_run, bu=args.bu))
 
     elif args.prospects:
-        all_results = run_prospect_mode(args.prospects, dry_run=args.dry_run, bu=args.bu)
+        all_results = run_prospect_mode(
+            args.prospects, dry_run=args.dry_run, bu=args.bu)
 
     elif args.accounts:
         all_results = run_account_pipeline(bu=args.bu, dry_run=args.dry_run)
