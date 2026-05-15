@@ -388,7 +388,7 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
     run_id  = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     usage   = RunUsage(query)
     sheets  = SheetsClient()
-    sheets._connect()
+    #sheets._connect()
     summary = []
 
     usage.start_prospect("_grok_research")
@@ -535,7 +535,7 @@ def run_account_pipeline(
     Updates Last Run timestamp on each account after processing.
     """
     sheets = sheets_client or SheetsClient()
-    sheets._connect()
+    #sheets._connect()
 
     accounts = sheets.get_accounts(bu_filter=bu)
     if not accounts:

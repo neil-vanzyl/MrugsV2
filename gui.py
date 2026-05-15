@@ -510,7 +510,7 @@ def render_history_sidebar(bu_filter: str = None) -> None:
 
     # Invalidate cache if BU changed or older than 5 minutes
     if (cache_key not in st.session_state
-            or cache_age > 300
+            or cache_age > 900
             or cached_bu != bu_filter):
         try:
             from core.sheets import SheetsClient
@@ -952,19 +952,16 @@ else:
         # ---- Accounts table ----
         st.markdown(f"**Tracked Accounts · BU={bu}**")
 
-        # Cache accounts for 2 minutes
-        acc_cache_key = f"accounts_cache_{bu}"
-        acc_cache_ts  = f"accounts_cache_ts_{bu}"
-        now = datetime.now().timestamp()
-        if acc_cache_key not in st.session_state or (now - st.session_state.get(acc_cache_ts, 0)) > 120:
-            try:
-                from core.sheets import SheetsClient
-                sc = SheetsClient()
-                st.session_state[acc_cache_key] = sc.get_accounts(bu_filter=bu)
-                st.session_state[acc_cache_ts]  = now
-            except Exception as exc:
-                st.caption(f"Could not load accounts: {exc}")
-                st.session_state[acc_cache_key] = []
+        # on button click the load accounts
+        col_refresh, _ = st.columns([1, 4])
+        with col_refresh:
+            if st.button("🔄 Load Accounts", key="load_accounts_btn"):
+                try:
+                    from core.sheets import SheetsClient
+                    sc = SheetsClient()
+                    st.session_state[acc_cache_key] = sc.get_accounts(bu_filter=bu)
+                except Exception as exc:
+                    st.error(f"Could not load accounts: {exc}")
 
         accounts = st.session_state.get(acc_cache_key, [])
 
