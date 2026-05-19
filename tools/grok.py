@@ -152,7 +152,7 @@ def run_research_waterfall(query: str, usage_tracker=None) -> dict:
             {"type": "web_search"}, 
             {"type": "x_search"}
         ],
-        "response_format": {"type": "json_object"},
+        #"response_format": {"type": "json_object"},
         "temperature": 0.1,
         "store_messages": True
     }
