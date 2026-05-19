@@ -21,7 +21,7 @@ from tools.gemini import translate_query, score_companies
 
 logger = logging.getLogger("ott_lead_gen.discovery")
 
-MIN_COMPANIES_FOR_SCORING = 3  # below this, skip Gemini scoring
+MIN_COMPANIES_FOR_SCORING = 1  # Gemini always scores, even for a single result
 TARGET_COMPANY_COUNT = 10      # how many Exa aims to find
 
 
@@ -56,6 +56,7 @@ def _search_companies_exa(search_strings: List[str]) -> List[dict]:
                 type="auto",
                 num_results=6,
                 include_domains=["linkedin.com"],
+                text={"max_characters": 400},
             )
 
             for r in getattr(results, "results", []):
@@ -73,10 +74,18 @@ def _search_companies_exa(search_strings: List[str]) -> List[dict]:
                     slug = url.rstrip("/").split("/")[-1]
                     name = slug.replace("-", " ").title()
 
+                # Extract text snippet — LinkedIn descriptions, taglines, follower counts
+                text_content = ""
+                raw_text = getattr(r, "text", None)
+                if raw_text:
+                    # Trim to a clean one-paragraph snippet
+                    text_content = raw_text.strip()[:350]
+
                 companies.append({
                     "name": name,
                     "linkedin_url": url,
                     "exa_title": title,
+                    "exa_snippet": text_content,
                 })
                 logger.debug(f"  Found: {name} ({url})")
 

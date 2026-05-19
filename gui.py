@@ -996,13 +996,24 @@ else:
                     with col_info:
                         name_md = f"[{name}]({li})" if li else name
                         gemini_badge = " 🤖 Gemini pick" if is_gemini else ""
+                        exa_title   = company.get("exa_title", "")
+                        exa_snippet = company.get("exa_snippet", "")
+
+                        # Strip the company name prefix from exa_title for cleaner display
+                        subtitle = exa_title.split("|")[-1].strip() if "|" in exa_title else ""
+
                         if reasoning:
                             st.markdown(
                                 f"**{name_md}**{gemini_badge}  \n"
                                 f"*{signal_type}* — {reasoning}"
                             )
                         else:
-                            st.markdown(f"**{name_md}**")
+                            st.markdown(f"**{name_md}**{gemini_badge}")
+
+                        if subtitle:
+                            st.caption(subtitle)
+                        if exa_snippet:
+                            st.caption(exa_snippet)
 
                 # Recount after potential rerun
                 selected_count = sum(
