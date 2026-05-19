@@ -899,33 +899,48 @@ else:
         with col_title:
             st.markdown("#### Find Companies")
         with col_rand:
-            if st.button("🎲 Randomize", ...):
+            if st.button("🎲 Randomize", key="randomize_btn",
+                         use_container_width=True,
+                         help="Auto-fill with a random discovery scenario"):
                 import random as _random
                 cfg = _random.choice(RANDOM_CONFIGS)
-                
+
                 # Update form tracking state
-                st.session_state["form_verticals"] = cfg["verticals"]
-                st.session_state["form_signals"]   = cfg["signals"]
-                st.session_state["form_context"]   = cfg["context"]
-                
-                # Clear live brief state
-                for key in ["assembled_brief", "sweep_result",
-                            "grok_prospects", "enrichment_selections",
-                            "form_signals_live"]:
-                    st.session_state.pop(key, None)
-                
-                # Set each vertical checkbox widget state directly
-                for v in VERTICALS:
-                    st.session_state[f"v_{v}"] = v in cfg["verticals"]
-                
-                # Set each signal checkbox widget state directly
-                for group_signals in SIGNALS.values():
-                    for s in group_signals:
-                        st.session_state[f"s_{s}"] = s in cfg["signals"]
-                
-                # Set context input widget state directly
+                st.session_state["form_verticals"]      = cfg["verticals"]
+                st.session_state["form_signals"]        = cfg["signals"]
+                st.session_state["form_context"]        = cfg["context"]
+                st.session_state["form_signals_live"]   = cfg["signals"]
+                st.session_state["form_verticals_live"] = cfg["verticals"]
+
+                # Build the new brief now and write directly to the widget key
+                # so the text area reflects the new values immediately
+                _bu_label = {
+                    "NAM": "North America (US, Canada, Mexico)",
+                    "E&L": "Europe or Latin America",
+                    "APAC": "Asia Pacific",
+                }.get(bu, bu)
+                _new_brief = (
+                    f"Find Tier 1 and Tier 2 {', '.join(cfg['verticals'])} companies "
+                    f"headquartered in {_bu_label} "
+                    f"showing these OTT buying signals: {', '.join(cfg['signals'])}."
+                )
+                if cfg.get("context"):
+                    _new_brief += f"\n\nAdditional context: {cfg['context']}"
+                st.session_state["brief_text_area"] = _new_brief
                 st.session_state["form_context_input"] = cfg["context"]
-                
+
+                # Set each checkbox widget state directly
+                for _v in VERTICALS:
+                    st.session_state[f"v_{_v}"] = _v in cfg["verticals"]
+                for _group_signals in SIGNALS.values():
+                    for _s in _group_signals:
+                        st.session_state[f"s_{_s}"] = _s in cfg["signals"]
+
+                # Clear downstream state only
+                for key in ["assembled_brief", "sweep_result",
+                            "grok_prospects", "enrichment_selections"]:
+                    st.session_state.pop(key, None)
+
                 st.rerun()
 
         st.caption("**What kind of company are you hunting?**")
@@ -988,6 +1003,19 @@ else:
             if context_val.strip():
                 auto_brief += f"\n\nAdditional context: {context_val.strip()}"
 
+            # Use Gemini-enhanced brief if available, otherwise auto-built
+            if "assembled_brief" in st.session_state:
+                brief_default = st.session_state["assembled_brief"].get("brief", auto_brief)
+            else:
+                brief_default = auto_brief
+                # Keep widget in sync with current selections unless user has
+                # manually edited it (detect by comparing to last auto-built value)
+                last_auto = st.session_state.get("last_auto_brief", "")
+                current_widget = st.session_state.get("brief_text_area", "")
+                if current_widget == last_auto or current_widget == "":
+                    st.session_state["brief_text_area"] = auto_brief
+                st.session_state["last_auto_brief"] = auto_brief
+
             # Optional Gemini enhancement
             col_brief, col_enhance = st.columns([5, 1])
             with col_brief:
@@ -999,12 +1027,6 @@ else:
                     use_container_width=True,
                     help="Use Gemini to add industry context and search angles",
                 )
-
-            # Use Gemini-enhanced brief if available, otherwise auto-built brief
-            if "assembled_brief" in st.session_state:
-                brief_default = st.session_state["assembled_brief"].get("brief", auto_brief)
-            else:
-                brief_default = auto_brief
 
             edited_brief = st.text_area(
                 "",
