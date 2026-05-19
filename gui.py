@@ -20,6 +20,7 @@ import config
 import main
 from utils.helpers import setup_logging
 from utils.usage_tracker import load_usage_history
+from prompts.gemini_scorer import RANDOM_CONFIGS
 
 setup_logging(level=logging.INFO)
 
@@ -863,7 +864,7 @@ else:
     # -----------------------------------------------------------------------
     with tab_discovery:
 
-        from prompts.gemini_scorer import RANDOM_CONFIGS
+        #from prompts.gemini_scorer import RANDOM_CONFIGS
 
         VERTICALS = [
             "Sports", "News", "Entertainment", "Faith", "Fitness",
