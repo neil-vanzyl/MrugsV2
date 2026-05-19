@@ -109,6 +109,8 @@ def run_discovery_waterfall(brief: str, bu: str = "", usage_tracker=None) -> dic
     return result
 
 
+@with_retries(max_attempts=3, delay=15.0, exceptions=(Exception,))
+def run_research_waterfall(query: str, usage_tracker=None) -> dict:
 
     if not config.XAI_API_KEY:
         raise ValueError("XAI_API_KEY is not set.")
