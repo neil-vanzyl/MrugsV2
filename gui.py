@@ -899,17 +899,33 @@ else:
         with col_title:
             st.markdown("#### Find Companies")
         with col_rand:
-            if st.button("🎲 Randomize", key="randomize_btn",
-                         use_container_width=True,
-                         help="Auto-fill with a random discovery scenario"):
+            if st.button("🎲 Randomize", ...):
                 import random as _random
                 cfg = _random.choice(RANDOM_CONFIGS)
+                
+                # Update form tracking state
                 st.session_state["form_verticals"] = cfg["verticals"]
                 st.session_state["form_signals"]   = cfg["signals"]
                 st.session_state["form_context"]   = cfg["context"]
+                
+                # Clear live brief state
                 for key in ["assembled_brief", "sweep_result",
-                            "grok_prospects", "enrichment_selections"]:
+                            "grok_prospects", "enrichment_selections",
+                            "form_signals_live"]:
                     st.session_state.pop(key, None)
+                
+                # Set each vertical checkbox widget state directly
+                for v in VERTICALS:
+                    st.session_state[f"v_{v}"] = v in cfg["verticals"]
+                
+                # Set each signal checkbox widget state directly
+                for group_signals in SIGNALS.values():
+                    for s in group_signals:
+                        st.session_state[f"s_{s}"] = s in cfg["signals"]
+                
+                # Set context input widget state directly
+                st.session_state["form_context_input"] = cfg["context"]
+                
                 st.rerun()
 
         st.caption("**What kind of company are you hunting?**")
@@ -949,18 +965,25 @@ else:
 
         # Build query directly from form selections — no LLM needed
         if form_ready:
-            vertical_str = ", ".join(selected_verticals)
-            signal_str   = ", ".join(selected_signals)
-            bu_label     = {
+            bu_label = {
                 "NAM":  "North America (US, Canada, Mexico)",
                 "E&L":  "Europe or Latin America",
                 "APAC": "Asia Pacific",
             }.get(bu, bu)
 
+            # Read from previous render's persisted values for the brief
+            # Fall back to current render values only if nothing persisted yet
+            brief_signals   = st.session_state.get("form_signals_live", selected_signals)
+            brief_verticals = st.session_state.get("form_verticals", selected_verticals)
+
+            # Now persist current render values for the NEXT render
+            st.session_state["form_signals_live"]    = selected_signals
+            st.session_state["form_verticals_live"]  = selected_verticals
+
             auto_brief = (
-                f"Find Tier 1 and Tier 2 {vertical_str} companies "
+                f"Find Tier 1 and Tier 2 {', '.join(brief_verticals)} companies "
                 f"headquartered in {bu_label} "
-                f"showing these OTT buying signals: {signal_str}."
+                f"showing these OTT buying signals: {', '.join(brief_signals)}."
             )
             if context_val.strip():
                 auto_brief += f"\n\nAdditional context: {context_val.strip()}"
@@ -1043,6 +1066,7 @@ else:
                 st.session_state["form_verticals"] = selected_verticals
                 st.session_state["form_signals"]   = selected_signals
                 st.session_state["form_context"]   = context_val
+                st.session_state["form_signals_live"] = selected_signals
                 for key in ["sweep_result", "company_selections",
                             "grok_prospects", "enrichment_selections"]:
                     st.session_state.pop(key, None)
@@ -1402,7 +1426,7 @@ else:
         col_title, col_rand = st.columns([5, 1])
         with col_title:
             st.markdown("#### Find Companies")
-            
+
 
     # -----------------------------------------------------------------------
     # ACCOUNT INTELLIGENCE TAB
