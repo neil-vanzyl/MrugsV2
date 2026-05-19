@@ -1402,18 +1402,7 @@ else:
         col_title, col_rand = st.columns([5, 1])
         with col_title:
             st.markdown("#### Find Companies")
-        with col_rand:
-            if st.button("🎲 Randomize", key="randomize_btn", use_container_width=True,
-                         help="Auto-fill the form with a random discovery scenario"):
-                import random as _random
-                cfg = _random.choice(RANDOM_CONFIGS)
-                st.session_state["form_verticals"]  = cfg["verticals"]
-                st.session_state["form_signals"]    = cfg["signals"]
-                st.session_state["form_context"]    = cfg["context"]
-                st.session_state.pop("assembled_brief", None)
-                st.session_state.pop("grok_prospects", None)
-                st.session_state.pop("enrichment_selections", None)
-                st.rerun()
+        
 
         # Vertical selector
         st.caption("**What kind of company are you hunting?**")
