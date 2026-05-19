@@ -575,7 +575,237 @@ def run_discovery(query: str, bu: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# pipeline selectoin run
+# Stage 1 only — Grok research (GUI pauses here for enrichment selection)
+# ---------------------------------------------------------------------------
+
+def run_grok_only(
+    query: str,
+    bu: str,
+    selected_companies: list,
+    run_id: str,
+    usage: "RunUsage" = None,
+    sheets: SheetsClient = None,
+) -> List[dict]:
+    """
+    Run Grok research only on selected companies.
+    Returns raw Grok prospect dicts with scores — no Apollo/Exa/Claude yet.
+    Called by the GUI after the user selects companies from discovery.
+    The GUI then presents scores and lets the user choose which to enrich.
+    CLI path bypasses this and calls run_pipeline_from_selection() directly.
+    """
+    logger.info(f"\n{'='*65}")
+    logger.info(f"Grok only: {len(selected_companies)} companies | BU={bu}")
+    logger.info(f"{'='*65}")
+
+    usage  = usage  or RunUsage(query)
+    sheets = sheets or SheetsClient()
+
+    bu_context = {
+        "NAM":  "Prioritise companies headquartered in North America (US, Canada, Mexico).",
+        "E&L":  "Prioritise companies headquartered in Europe or Latin America.",
+        "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
+    }.get(bu, "")
+
+    usage.start_prospect("_grok_research")
+    t0 = time.monotonic()
+    all_prospects = []
+
+    try:
+        for company in selected_companies:
+            name = company.get("name", "")
+            if not name:
+                continue
+            named_query = (
+                f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
+                f"ORIGINAL DISCOVERY CONTEXT: {query}\n\n"
+                f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
+                f"Based on that context, research whichever is most relevant:\n"
+                f"- If they have an existing OTT platform: technology infrastructure, "
+                f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
+                f"- If they are pre-platform or mobile-only: content strategy, social "
+                f"audience size, funding history, current distribution platforms, "
+                f"CTV ambition signals, platform expansion announcements\n\n"
+                f"Return intelligence specifically about {name}, not similar companies. "
+                f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst)."
+            )
+            grok_result = run_research_waterfall(named_query, usage_tracker=usage)
+            all_prospects.extend(grok_result.get("prospects", []))
+
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        cur = usage._prospects[0] if usage._prospects else None
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Grok", status="OK",
+            detail=f"{len(all_prospects)} prospect(s) returned | user_selected={len(selected_companies)} | bu={bu}",
+            tokens_in=cur.grok_input_tokens if cur else 0,
+            tokens_out=cur.grok_output_tokens if cur else 0,
+            duration_ms=duration_ms,
+        )
+
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=query, company="—", domain="—",
+            step="Grok", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
+        logger.error(f"Grok failed: {exc}")
+
+    usage.end_prospect()
+    return all_prospects
+
+
+# ---------------------------------------------------------------------------
+# Stages 2-6 — enrichment on user-approved subset of Grok prospects
+# ---------------------------------------------------------------------------
+
+def run_enrichment_from_selection(
+    query: str,
+    bu: str,
+    all_prospects: list,
+    enrichment_names: set,
+    run_id: str,
+    dry_run: bool = False,
+    discovery: dict = None,
+    usage: "RunUsage" = None,
+    sheets: SheetsClient = None,
+) -> List[dict]:
+    """
+    Run Apollo + Exa exec intel + Claude Sonnet + Claude Opus + Sheets
+    on a user-selected subset of Grok prospects.
+
+    Unselected prospects are written directly to Cold Leads with no enrichment.
+    Selected prospects go through the full process_prospect() pipeline.
+
+    Args:
+        all_prospects:    All raw prospect dicts Grok returned
+        enrichment_names: Set of company names the user selected for enrichment
+    """
+    logger.info(
+        f"\n{'='*65}\n"
+        f"Enrichment: {len(enrichment_names)} selected of {len(all_prospects)} total | BU={bu}\n"
+        f"{'='*65}"
+    )
+
+    usage  = usage  or RunUsage(query)
+    sheets = sheets or SheetsClient()
+    summary = []
+
+    discovery_meta = {
+        "discovery_ran":  discovery.get("discovery_ran", False) if discovery else False,
+        "gemini_ran":     discovery.get("gemini_ran", False) if discovery else False,
+        "all_found":      discovery.get("all_found", []) if discovery else [],
+        "selected":       discovery.get("selected", []) if discovery else [],
+        "rejected":       discovery.get("rejected", []) if discovery else [],
+        "search_strings": discovery.get("search_strings", []) if discovery else [],
+    }
+
+    exa_rejected_str = ", ".join(
+        r.get("name", "") for r in (discovery.get("rejected", []) if discovery else [])
+    )
+
+    for i, prospect in enumerate(all_prospects, 1):
+        company = prospect.get("name", "?")
+        selected_for_enrichment = company in enrichment_names
+
+        logger.info(
+            f"[{i}/{len(all_prospects)}] {company} — "
+            f"{'ENRICH' if selected_for_enrichment else 'ARCHIVE to Cold'}"
+        )
+
+        if selected_for_enrichment:
+            result = process_prospect(
+                prospect, sheets, query, run_id,
+                dry_run=dry_run, usage=usage,
+                exa_rejected=exa_rejected_str,
+                gemini_reasoning="",
+                bu=bu,
+            )
+        else:
+            if usage:
+                usage.start_prospect(company)
+
+            domain = prospect.get("domain", "")
+            stub_analyst = {
+                "refined_score": prospect.get("opportunity_score", 0),
+                "verdict": "COLD",
+                "write_to_sheet": False,
+                "skip_reason": "Not selected for enrichment by user",
+                "top_entry_point": "",
+                "score_delta_reasoning": "Archived by user at enrichment selection step",
+                "copywriter_brief": "",
+                "transition_gap_confirmed": "",
+                "key_risk_if_no_action": "",
+            }
+            stub_emails = {
+                "visionary_email": {
+                    "subject_line": f"{company} — archived",
+                    "body": "Not selected for enrichment — re-qualify in next run.",
+                },
+                "operator_email": {"subject_line": "", "body": ""},
+            }
+
+            result = {
+                "company":       company,
+                "domain":        domain,
+                "grok_score":    prospect.get("opportunity_score"),
+                "refined_score": prospect.get("opportunity_score"),
+                "verdict":       "COLD",
+                "exa_enriched":  False,
+                "apollo_active": False,
+                "rows_written":  0,
+                "skipped":       False,
+                "error":         None,
+                "bu":            bu,
+                "prospect":      prospect,
+                "analyst":       stub_analyst,
+                "emails":        stub_emails,
+            }
+
+            if not dry_run:
+                t0 = time.monotonic()
+                try:
+                    written = sheets.append_lead(
+                        prospect, stub_analyst, stub_emails,
+                        contact=None,
+                        query=query,
+                        is_cold=True,
+                        exa_rejected=exa_rejected_str,
+                        gemini_reasoning="User archived at enrichment step",
+                        bu=bu,
+                    )
+                    if written:
+                        result["rows_written"] = 1
+                    duration_ms = int((time.monotonic() - t0) * 1000)
+                    sheets.write_log(
+                        run_id=run_id, query=query,
+                        company=company, domain=domain,
+                        step="Sheets",
+                        status="OK" if written else "SKIPPED",
+                        detail="Archived to Cold Leads — not selected for enrichment",
+                        duration_ms=duration_ms,
+                    )
+                except Exception as exc:
+                    logger.error(f"  Sheets write failed for '{company}': {exc}")
+                    result["error"] = f"Sheets: {exc}"
+
+            if usage:
+                usage.end_prospect()
+
+        result["discovery_meta"] = discovery_meta
+        summary.append(result)
+
+    usage.finish()
+    usage.save()
+    usage_summary = usage.summary()
+    for r in summary:
+        r["usage_summary"] = usage_summary
+
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# CLI convenience wrapper — runs Grok then enriches all prospects unattended
 # ---------------------------------------------------------------------------
 
 def run_pipeline_from_selection(
@@ -598,122 +828,51 @@ def run_pipeline_from_selection(
         dry_run:            Skip Sheets writes if True
         discovery:          Full discovery dict from run_discovery()
     """
-    logger.info(f"\n{'='*65}")
-    logger.info(f"Pipeline from selection: {len(selected_companies)} companies | BU={bu}")
-    logger.info(f"{'='*65}")
-
+    """
+    CLI path: runs Grok then immediately enriches all prospects automatically
+    using score-based routing (score >= 50 → enrich, below → archive to Cold).
+    GUI uses run_grok_only() + run_enrichment_from_selection() instead so the
+    user can review Grok scores before the expensive Apollo/Claude steps run.
+    """
     usage  = RunUsage(query)
     sheets = SheetsClient()
-    summary = []
 
-    # Build discovery metadata for GUI
-    discovery_meta = {
-        "discovery_ran":  discovery.get("discovery_ran", False) if discovery else False,
-        "gemini_ran":     discovery.get("gemini_ran", False) if discovery else False,
-        "all_found":      discovery.get("all_found", []) if discovery else [],
-        "selected":       [{"name": c.get("name", ""), "linkedin_url": c.get("linkedin_url", ""), "reasoning": c.get("reasoning", ""), "signal_type": c.get("signal_type", "")} for c in selected_companies],
-        "rejected":       discovery.get("rejected", []) if discovery else [],
-        "search_strings": discovery.get("search_strings", []) if discovery else [],
-    }
-
-    exa_rejected_str = ", ".join(
-        r.get("name", "") for r in (discovery.get("rejected", []) if discovery else [])
+    all_prospects = run_grok_only(
+        query=query,
+        bu=bu,
+        selected_companies=selected_companies,
+        run_id=run_id,
+        usage=usage,
+        sheets=sheets,
     )
 
-    gemini_reasonings = {
-        c.get("name", ""): c.get("reasoning", "")
-        for c in selected_companies
+    if not all_prospects:
+        logger.warning("Grok returned no prospects.")
+        return [{"error": None, "company": "", "domain": ""}]
+
+    # Auto-select: enrich HOT/WARM (score >= 50), archive COLD
+    enrichment_names = {
+        p.get("name", "")
+        for p in all_prospects
+        if (p.get("opportunity_score") or 0) >= 50
     }
 
-    bu_context = {
-        "NAM":  "Prioritise companies headquartered in North America (US, Canada, Mexico).",
-        "E&L":  "Prioritise companies headquartered in Europe or Latin America.",
-        "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
-    }.get(bu, "")
+    logger.info(
+        f"CLI auto-select: {len(enrichment_names)} of {len(all_prospects)} "
+        f"prospects qualify for enrichment (score >= 50)"
+    )
 
-    # Stage 1 — Grok researches each selected company
-    usage.start_prospect("_grok_research")
-    t0 = time.monotonic()
-
-    try:
-        all_prospects = []
-        for company in selected_companies:
-            name = company.get("name", "")
-            if not name:
-                continue
-            named_query = (
-                f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
-                f"ORIGINAL DISCOVERY CONTEXT: {query}\n\n"
-                f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
-                f"Based on that context, research whichever is most relevant:\n"
-                f"- If they have an existing OTT platform: technology infrastructure, "
-                f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
-                f"- If they are pre-platform or mobile-only: content strategy, social "
-                f"audience size, funding history, current distribution platforms, "
-                f"CTV ambition signals, platform expansion announcements\n\n"
-                f"Return intelligence specifically about {name}, not similar companies. "
-                f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst)."
-            )
-            grok_result = run_research_waterfall(named_query, usage_tracker=usage)
-            all_prospects.extend(grok_result.get("prospects", []))
-
-        prospects = all_prospects
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        cur = usage._prospects[0] if usage._prospects else None
-        sheets.write_log(
-            run_id=run_id, query=query, company="—", domain="—",
-            step="Grok", status="OK",
-            detail=(
-                f"{len(prospects)} prospect(s) returned | "
-                f"user_selected={len(selected_companies)} | bu={bu}"
-            ),
-            tokens_in=cur.grok_input_tokens if cur else 0,
-            tokens_out=cur.grok_output_tokens if cur else 0,
-            duration_ms=duration_ms,
-        )
-
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        sheets.write_log(
-            run_id=run_id, query=query, company="—", domain="—",
-            step="Grok", status="FAILED",
-            error=str(exc), duration_ms=duration_ms,
-        )
-        usage.end_prospect()
-        logger.error(f"Grok waterfall failed: {exc}")
-        return [{"error": str(exc), "company": "", "domain": "",
-                 "discovery_meta": discovery_meta}]
-
-    usage.end_prospect()
-
-    if not prospects:
-        logger.warning("Grok returned no prospects.")
-        return [{"error": None, "company": "", "domain": "",
-                 "discovery_meta": discovery_meta}]
-
-    logger.info(f"Grok returned {len(prospects)} prospect(s) — enriching + qualifying now\n")
-
-    # Stages 2-6 per prospect
-    for i, prospect in enumerate(prospects, 1):
-        company = prospect.get("name", "?")
-        logger.info(f"[{i}/{len(prospects)}] {company}")
-        gemini_reasoning = gemini_reasonings.get(company, "")
-        result = process_prospect(
-            prospect, sheets, query, run_id,
-            dry_run=dry_run, usage=usage,
-            exa_rejected=exa_rejected_str,
-            gemini_reasoning=gemini_reasoning,
-            bu=bu,
-        )
-        result["discovery_meta"] = discovery_meta
-        summary.append(result)
-
-    usage.finish()
-    usage.save()
-    usage_summary = usage.summary()
-    for r in summary:
-        r["usage_summary"] = usage_summary
-    return summary
+    return run_enrichment_from_selection(
+        query=query,
+        bu=bu,
+        all_prospects=all_prospects,
+        enrichment_names=enrichment_names,
+        run_id=run_id,
+        dry_run=dry_run,
+        discovery=discovery,
+        usage=usage,
+        sheets=sheets,
+    )
 # ---------------------------------------------------------------------------
 # Account intelligence pipeline run
 # ---------------------------------------------------------------------------

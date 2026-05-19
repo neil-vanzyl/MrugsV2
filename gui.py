@@ -681,6 +681,49 @@ with st.sidebar:
     st.caption("Accedo · Director of Strategic Accounts")
     st.divider()
 
+    # -----------------------------------------------------------------------
+    # Model selector
+    # -----------------------------------------------------------------------
+    with st.expander("⚙️ Model Configuration", expanded=False):
+        st.caption("Select models for each pipeline stage. Changes apply to the next run.")
+
+        def _model_selectbox(role: str, label: str) -> str:
+            options = config.MODEL_OPTIONS[role]
+            labels  = [o["label"] for o in options]
+            key     = f"model_sel_{role}"
+            if key not in st.session_state:
+                st.session_state[key] = 0
+            idx = st.selectbox(
+                label,
+                options=range(len(labels)),
+                format_func=lambda i: labels[i],
+                index=st.session_state[key],
+                key=f"{key}_widget",
+            )
+            st.session_state[key] = idx
+            chosen = options[idx]
+            st.caption(
+                f"💬 {chosen['note']}  \n"
+                f"💰 ${chosen['input_cost']}/M in · ${chosen['output_cost']}/M out"
+            )
+            return chosen["model"]
+
+        _model_selectbox("grok",       "🔬 Grok — Research")
+        st.divider()
+        _model_selectbox("gemini",     "🔍 Gemini — Discovery")
+        st.divider()
+        _model_selectbox("analyst",    "🧠 Claude — Analyst")
+        st.divider()
+        _model_selectbox("copywriter", "✉️ Claude — Copywriter")
+        st.divider()
+        st.markdown("**Exa — LinkedIn Intel**")
+        st.caption("🔒 Fixed — no model selection  \n💰 ~$0.005 per exec search")
+        st.divider()
+        st.markdown("**Apollo — Contact Enrichment**")
+        st.caption("🔒 Fixed — no model selection  \n💰 $0.49/credit (bulk enrich)")
+
+    st.divider()
+
     # BU selector — affects both tracks
     selected_bu = st.selectbox(
         "Business Unit",
@@ -764,6 +807,24 @@ st.markdown(
 
 bu = st.session_state.get("selected_bu", config.BU_DEFAULT)
 
+
+# ---------------------------------------------------------------------------
+# Model override helper — patches config at run time, no permanent changes
+# ---------------------------------------------------------------------------
+
+def _apply_model_overrides() -> None:
+    for role, attr in [
+        ("grok",       "GROK_SCOUT_MODEL"),
+        ("gemini",     "GEMINI_DISCOVERY_MODEL"),
+        ("analyst",    "CLAUDE_ANALYST_MODEL"),
+        ("copywriter", "CLAUDE_COPYWRITER_MODEL"),
+    ]:
+        idx = st.session_state.get(f"model_sel_{role}", 0)
+        options = config.MODEL_OPTIONS.get(role, [])
+        if options and idx < len(options):
+            setattr(config, attr, options[idx]["model"])
+
+
 # ---------------------------------------------------------------------------
 # View mode handler (history card)
 # ---------------------------------------------------------------------------
@@ -843,6 +904,7 @@ else:
 
         # ---- Stage 0: Find companies ----
         if find_btn:
+            _apply_model_overrides()
             log_stream = st.session_state.get("log_stream")
             if log_stream:
                 log_stream.truncate(0)
@@ -970,6 +1032,7 @@ else:
                 )
 
                 if research_btn:
+                    _apply_model_overrides()
                     st.session_state["view_mode"] = "run"
                     log_stream = st.session_state.get("log_stream")
                     if log_stream:
@@ -977,37 +1040,136 @@ else:
                         log_stream.seek(0)
 
                     with st.status(
-                        f"Researching {selected_count} selected {'company' if selected_count == 1 else 'companies'}…",
+                        f"Grok researching {selected_count} selected {'company' if selected_count == 1 else 'companies'}…",
                         expanded=True,
                     ) as status:
-                        st.write("🔍 Grok deep research waterfall running…")
+                        st.write("🔍 Grok deep research waterfall running — this takes 2-3 minutes per company…")
                         try:
-                            results = main.run_pipeline_from_selection(
+                            from core.sheets import SheetsClient
+                            sc = SheetsClient()
+                            grok_prospects = main.run_grok_only(
                                 query=query,
                                 bu=bu,
                                 selected_companies=selected_companies,
                                 run_id=disc_result.get("run_id", ""),
-                                dry_run=is_dry_run,
-                                discovery=discovery,
+                                sheets=sc,
                             )
+                            st.session_state["grok_prospects"] = grok_prospects
+                            st.session_state["grok_run_id"]    = disc_result.get("run_id", "")
+                            st.session_state["grok_discovery"] = discovery
+                            st.session_state["grok_query"]     = query
+                            st.session_state.pop("enrichment_selections", None)
                             status.update(
-                                label="✅ Research complete!",
+                                label=f"✅ Grok returned {len(grok_prospects)} prospect(s) — review scores below",
                                 state="complete",
                                 expanded=False,
                             )
                         except Exception as exc:
-                            status.update(label="❌ Pipeline error", state="error", expanded=True)
+                            status.update(label="❌ Grok error", state="error", expanded=True)
                             st.error(f"**Error:** {exc}")
                             st.exception(exc)
-                            results = []
 
-                    if not results or (len(results) == 1 and not results[0].get("company")):
-                        st.warning("⚠️ Grok found no qualifying prospects for the selected companies.")
-                    elif results:
-                        # Clear discovery state after successful run
-                        st.session_state.pop("discovery_result", None)
-                        st.session_state.pop("company_selections", None)
-                        _display_results(results, is_dry_run, query, bu)
+        # ---- Grok results — enrichment selection UI ----
+        grok_prospects = st.session_state.get("grok_prospects", [])
+
+        if grok_prospects:
+            st.divider()
+            st.subheader(f"🧠 Grok returned {len(grok_prospects)} prospect(s) — select which to enrich")
+            st.caption(
+                "HOT and WARM leads are pre-checked. Unselected companies are archived to Cold Leads with no further processing."
+            )
+
+            if "enrichment_selections" not in st.session_state:
+                st.session_state["enrichment_selections"] = {
+                    p.get("name", ""): (p.get("opportunity_score") or 0) >= 50
+                    for p in grok_prospects
+                }
+
+            for prospect in grok_prospects:
+                name    = prospect.get("name", "")
+                score   = prospect.get("opportunity_score") or 0
+                verdict = "HOT" if score >= 70 else "WARM" if score >= 50 else "COLD"
+                opp_type = prospect.get("opportunity_type", "")
+                gap      = prospect.get("transition_gap_timer", "")
+
+                col_check, col_score, col_info = st.columns([1, 2, 8])
+                with col_check:
+                    current = st.session_state["enrichment_selections"].get(name, False)
+                    checked = st.checkbox(
+                        "",
+                        value=current,
+                        key=f"enrich_{name}",
+                        label_visibility="collapsed",
+                    )
+                    st.session_state["enrichment_selections"][name] = checked
+                with col_score:
+                    st.markdown(_score_bar_html(score), unsafe_allow_html=True)
+                    st.markdown(_verdict_chip(verdict), unsafe_allow_html=True)
+                with col_info:
+                    detail = f"*{opp_type}*" if opp_type else ""
+                    if gap:
+                        detail += f" · {gap}"
+                    st.markdown(f"**{name}**  \n{detail}" if detail else f"**{name}**")
+
+            enrichment_count = sum(st.session_state["enrichment_selections"].values())
+            st.caption(f"{enrichment_count} selected for enrichment · {len(grok_prospects) - enrichment_count} will be archived to Cold Leads")
+
+            enrich_btn = st.button(
+                f"🚀 Enrich & Draft Outreach for {enrichment_count} Selected" if enrichment_count > 0 else "⬆️ Select at least one company above",
+                type="primary",
+                use_container_width=True,
+                key="enrich_btn",
+                disabled=enrichment_count == 0,
+            )
+
+            if enrich_btn:
+                _apply_model_overrides()
+                enrichment_names = {
+                    name for name, selected
+                    in st.session_state["enrichment_selections"].items()
+                    if selected
+                }
+                log_stream = st.session_state.get("log_stream")
+                if log_stream:
+                    log_stream.truncate(0)
+                    log_stream.seek(0)
+
+                with st.status(
+                    f"Enriching {enrichment_count} selected prospect(s)…",
+                    expanded=True,
+                ) as status:
+                    st.write("🔗 Apollo → Exa exec intel → Claude Sonnet → Claude Opus → Sheets…")
+                    try:
+                        from core.sheets import SheetsClient
+                        sc = SheetsClient()
+                        results = main.run_enrichment_from_selection(
+                            query=st.session_state.get("grok_query", query),
+                            bu=bu,
+                            all_prospects=grok_prospects,
+                            enrichment_names=enrichment_names,
+                            run_id=st.session_state.get("grok_run_id", ""),
+                            dry_run=is_dry_run,
+                            discovery=st.session_state.get("grok_discovery"),
+                            sheets=sc,
+                        )
+                        status.update(
+                            label="✅ Enrichment complete!",
+                            state="complete",
+                            expanded=False,
+                        )
+                    except Exception as exc:
+                        status.update(label="❌ Enrichment error", state="error", expanded=True)
+                        st.error(f"**Error:** {exc}")
+                        st.exception(exc)
+                        results = []
+
+                if results:
+                    # Clear Grok state after successful enrichment run
+                    st.session_state.pop("grok_prospects", None)
+                    st.session_state.pop("enrichment_selections", None)
+                    st.session_state.pop("discovery_result", None)
+                    st.session_state.pop("company_selections", None)
+                    _display_results(results, is_dry_run, query, bu)
 
         elif suggest_btn:
             pass
@@ -1133,6 +1295,7 @@ else:
         )
 
         if acc_run_btn:
+            _apply_model_overrides()
             st.session_state["view_mode"] = "run"
             log_stream = st.session_state.get("log_stream")
             if log_stream:

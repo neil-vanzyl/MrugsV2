@@ -81,4 +81,28 @@
     ],
     "SalesHook": "20 years of OTT delivery expertise — from hundreds to millions of concurrent viewers, we scale with you."
   }
+  {
+  	"ProductName": "Accedo Managed Services",
+	"CoreValueProposition": "A comprehensive operational and technical management solution that abstracts the complexity of the OTT ecosystem. By streamlining the backend technology stack and optimizing video operations, Accedo enables organizations to focus internal resources entirely on content acquisition, production, and marketing while ensuring a clear, high-performance path to rapid scale.",
+	"AdvancedFeaturesAndFunctionality": [
+	"End-to-end Technology Management & Architecture Planning led by dedicated Solution Architects",
+	"Full-cycle Technical Product Management and long-term roadmap oversight",
+	"Comprehensive Billing and Payment Operations management for global subscription models",
+	"Ad Operations Management for complex AVOD and SSAI environments",
+	"Content Catalog Management to ensure metadata integrity and discoverability",
+	"L2 Support Interface and integrated Customer Retention specialists to minimize churn",
+	"DevOps and infrastructure management to ensure high availability and performance",
+	"Advanced Analytics, BI, and Reporting Management for data-driven decision making",
+	"Operational oversight and client success management via dedicated Program Managers"
+	],
+	"PlatformReach": "Agnostic operational management across all major backend infrastructures and front-end ecosystems (CTV, Mobile, Web, and Gaming Consoles).",
+	"ProofPoints": [
+		"Successfully scaled backend operations for high-volume sports streaming services with millions of concurrent viewers",
+		"Managed end-to-end billing and subscription workflows for international SVOD providers",
+		"Optimized content catalog and metadata normalization for fragmented regional media libraries",
+		"Provided 24/7 L2 support and DevOps management for enterprise-grade broadcast services",
+		"Architected and managed complex ad-tech integrations for global AVOD platforms"
+	],
+	"SalesHook": "Abstract the technical complexity of your video operations and scale with confidence—focus on your content while we run your technology."
+}
 ]

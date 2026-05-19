@@ -22,10 +22,7 @@ from prompts.gemini_scorer import TRANSLATE_PROMPT, SCORE_PROMPT
 logger = logging.getLogger("ott_lead_gen.gemini")
 
 GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_API_URL: str = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{config.GEMINI_DISCOVERY_MODEL}:generateContent"
-)
+GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +36,8 @@ def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKE
             "GEMINI_API_KEY is not set. Add it to your Streamlit secrets or .env"
         )
 
+    api_url = f"{GEMINI_BASE_URL}/{config.GEMINI_DISCOVERY_MODEL}:generateContent"
+
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -48,7 +47,7 @@ def _call_gemini(prompt: str, max_tokens: int = config.GEMINI_DISCOVERY_MAX_TOKE
     }
 
     resp = requests.post(
-        f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+        f"{api_url}?key={GEMINI_API_KEY}",
         json=payload,
         timeout=30,
     )
