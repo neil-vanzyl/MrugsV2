@@ -20,7 +20,6 @@ import config
 import main
 from utils.helpers import setup_logging
 from utils.usage_tracker import load_usage_history
-from prompts.gemini_scorer import RANDOM_CONFIGS
 
 setup_logging(level=logging.INFO)
 
@@ -864,7 +863,7 @@ else:
     # -----------------------------------------------------------------------
     with tab_discovery:
 
-        #from prompts.gemini_scorer import RANDOM_CONFIGS
+        from prompts.gemini_scorer import RANDOM_CONFIGS
 
         VERTICALS = [
             "Sports", "News", "Entertainment", "Faith", "Fitness",
@@ -944,66 +943,91 @@ else:
         st.divider()
 
         form_ready = bool(selected_verticals and selected_signals)
-        assemble_btn = st.button(
-            "✨ Assemble Brief",
-            use_container_width=True,
-            key="assemble_btn",
-            disabled=not form_ready,
-            help="Gemini turns your selections into a research brief",
-        )
+
         if not form_ready:
             st.caption("Select at least one vertical and one signal to continue.")
 
-        # ---- Assemble brief ----
-        if assemble_btn:
-            _apply_model_overrides()
-            st.session_state["form_verticals"] = selected_verticals
-            st.session_state["form_signals"]   = selected_signals
-            st.session_state["form_context"]   = context_val
-            for key in ["assembled_brief", "sweep_result",
-                        "grok_prospects", "enrichment_selections"]:
-                st.session_state.pop(key, None)
+        # Build query directly from form selections — no LLM needed
+        if form_ready:
+            vertical_str = ", ".join(selected_verticals)
+            signal_str   = ", ".join(selected_signals)
+            bu_label     = {
+                "NAM":  "North America (US, Canada, Mexico)",
+                "E&L":  "Europe or Latin America",
+                "APAC": "Asia Pacific",
+            }.get(bu, bu)
 
-            with st.status("✨ Assembling research brief…", expanded=True) as status:
-                try:
-                    from tools.gemini import assemble_brief
-                    result = assemble_brief(
-                        verticals=selected_verticals,
-                        signals=selected_signals,
-                        context=context_val,
-                        bu=bu,
-                    )
-                    st.session_state["assembled_brief"] = result
-                    status.update(
-                        label=f"✅ Brief ready — {result.get('query_summary', '')}",
-                        state="complete", expanded=False,
-                    )
-                except Exception as exc:
-                    status.update(label="❌ Error", state="error", expanded=True)
-                    st.error(f"**Error:** {exc}")
+            auto_brief = (
+                f"Find Tier 1 and Tier 2 {vertical_str} companies "
+                f"headquartered in {bu_label} "
+                f"showing these OTT buying signals: {signal_str}."
+            )
+            if context_val.strip():
+                auto_brief += f"\n\nAdditional context: {context_val.strip()}"
 
-        # ----------------------------------------------------------------
-        # STAGE B — Brief display + discovery sweep
-        # ----------------------------------------------------------------
-        assembled = st.session_state.get("assembled_brief")
+            # Optional Gemini enhancement
+            col_brief, col_enhance = st.columns([5, 1])
+            with col_brief:
+                st.caption("**Research Brief** — edit before searching if needed")
+            with col_enhance:
+                enhance_btn = st.button(
+                    "✨ Enhance",
+                    key="enhance_btn",
+                    use_container_width=True,
+                    help="Use Gemini to add industry context and search angles",
+                )
 
-        if assembled:
-            st.divider()
-            st.caption("**Research Brief** — edit before searching if needed")
+            # Use Gemini-enhanced brief if available, otherwise auto-built brief
+            if "assembled_brief" in st.session_state:
+                brief_default = st.session_state["assembled_brief"].get("brief", auto_brief)
+            else:
+                brief_default = auto_brief
 
             edited_brief = st.text_area(
                 "",
-                value=assembled.get("brief", ""),
-                height=180,
+                value=brief_default,
+                height=160,
                 key="brief_text_area",
                 label_visibility="collapsed",
             )
 
-            signal_chips = "  ".join(
-                f"`{s}`" for s in assembled.get("signal_focus", [])
-            )
-            if signal_chips:
-                st.caption(f"Signal focus: {signal_chips}")
+            # Gemini enhancement — optional, shows error if it fails
+            if enhance_btn:
+                _apply_model_overrides()
+                with st.status("✨ Enhancing brief with Gemini…", expanded=True) as status:
+                    try:
+                        from tools.gemini import assemble_brief
+                        result = assemble_brief(
+                            verticals=selected_verticals,
+                            signals=selected_signals,
+                            context=context_val,
+                            bu=bu,
+                        )
+                        # Only use Gemini result if it produced a substantively
+                        # longer brief than the fallback
+                        gemini_brief = result.get("brief", "").strip()
+                        if len(gemini_brief) > len(auto_brief) + 50:
+                            st.session_state["assembled_brief"] = result
+                            status.update(
+                                label=f"✅ Enhanced — {result.get('query_summary', '')}",
+                                state="complete", expanded=False,
+                            )
+                            st.rerun()
+                        else:
+                            st.session_state.pop("assembled_brief", None)
+                            status.update(
+                                label="⚠️ Gemini returned a thin brief — using auto-built version",
+                                state="complete", expanded=False,
+                            )
+                    except Exception as exc:
+                        status.update(
+                            label=f"❌ Gemini enhancement failed — using auto-built brief",
+                            state="error", expanded=True,
+                        )
+                        st.error(
+                            f"Gemini error: {exc}\n\n"
+                            f"The auto-built brief below will be used instead."
+                        )
 
             sweep_btn = st.button(
                 "🔍 Find Companies",
@@ -1016,6 +1040,9 @@ else:
             # ---- Discovery sweep ----
             if sweep_btn:
                 _apply_model_overrides()
+                st.session_state["form_verticals"] = selected_verticals
+                st.session_state["form_signals"]   = selected_signals
+                st.session_state["form_context"]   = context_val
                 for key in ["sweep_result", "company_selections",
                             "grok_prospects", "enrichment_selections"]:
                     st.session_state.pop(key, None)
@@ -1467,171 +1494,6 @@ else:
                     status.update(label="❌ Brief assembly error", state="error", expanded=True)
                     st.error(f"**Error:** {exc}")
                     st.exception(exc)
-
-        # ---- Brief display + edit ----
-        assembled = st.session_state.get("assembled_brief")
-
-        if assembled:
-            st.divider()
-            st.caption("**Research Brief** — edit before running if needed")
-
-            edited_brief = st.text_area(
-                "",
-                value=assembled.get("brief", ""),
-                height=200,
-                key="brief_text_area",
-                label_visibility="collapsed",
-            )
-
-            signal_focus = assembled.get("signal_focus", [])
-            if signal_focus:
-                chips = "  ".join(f"`{s}`" for s in signal_focus)
-                st.caption(f"Signal focus: {chips}")
-
-            find_btn = st.button(
-                "🔍 Find Companies",
-                use_container_width=True,
-                type="primary",
-                key="find_btn",
-                disabled=not edited_brief.strip(),
-            )
-
-            # ---- Stage 1: Grok discovery ----
-            if find_btn:
-                _apply_model_overrides()
-                st.session_state["view_mode"] = "run"
-                st.session_state.pop("grok_prospects", None)
-                st.session_state.pop("enrichment_selections", None)
-                log_stream = st.session_state.get("log_stream")
-                if log_stream:
-                    log_stream.truncate(0)
-                    log_stream.seek(0)
-
-                with st.status("🔍 Grok searching for companies…", expanded=True) as status:
-                    st.write("Grok is searching the web for companies matching your brief — this takes 2-4 minutes…")
-                    try:
-                        disc = main.run_grok_discovery(edited_brief, bu=bu)
-                        prospects = disc.get("prospects", [])
-                        st.session_state["grok_prospects"] = prospects
-                        st.session_state["grok_run_id"]    = disc.get("run_id", "")
-                        st.session_state["grok_discovery"] = {
-                            "discovery_ran": True,
-                            "gemini_ran":    True,
-                            "all_found":     [],
-                            "selected":      [],
-                            "rejected":      [],
-                            "search_strings": [],
-                        }
-                        st.session_state["grok_query"] = edited_brief
-                        status.update(
-                            label=f"✅ Grok found {len(prospects)} prospect(s) — review scores below",
-                            state="complete",
-                            expanded=False,
-                        )
-                    except Exception as exc:
-                        status.update(label="❌ Grok error", state="error", expanded=True)
-                        st.error(f"**Error:** {exc}")
-                        st.exception(exc)
-
-        # ---- Grok results — enrichment selection UI ----
-        grok_prospects = st.session_state.get("grok_prospects", [])
-
-        if grok_prospects:
-            st.divider()
-            st.subheader(f"🧠 Grok found {len(grok_prospects)} prospect(s) — select which to enrich")
-            st.caption(
-                "HOT and WARM leads are pre-checked. "
-                "Unselected companies are archived to Cold Leads with no further processing."
-            )
-
-            if "enrichment_selections" not in st.session_state:
-                st.session_state["enrichment_selections"] = {
-                    p.get("name", ""): (p.get("opportunity_score") or 0) >= 50
-                    for p in grok_prospects
-                }
-
-            for prospect in grok_prospects:
-                name     = prospect.get("name", "")
-                score    = prospect.get("opportunity_score") or 0
-                verdict  = "HOT" if score >= 70 else "WARM" if score >= 50 else "COLD"
-                opp_type = prospect.get("opportunity_type", "")
-                gap      = prospect.get("transition_gap_timer", "")
-
-                col_check, col_score, col_info = st.columns([1, 2, 8])
-                with col_check:
-                    current = st.session_state["enrichment_selections"].get(name, False)
-                    checked = st.checkbox(
-                        "",
-                        value=current,
-                        key=f"enrich_{name}",
-                        label_visibility="collapsed",
-                    )
-                    st.session_state["enrichment_selections"][name] = checked
-                with col_score:
-                    st.markdown(_score_bar_html(score), unsafe_allow_html=True)
-                    st.markdown(_verdict_chip(verdict), unsafe_allow_html=True)
-                with col_info:
-                    detail = f"*{opp_type}*" if opp_type else ""
-                    if gap:
-                        detail += f" · {gap}"
-                    st.markdown(f"**{name}**  \n{detail}" if detail else f"**{name}**")
-
-            enrichment_count = sum(st.session_state["enrichment_selections"].values())
-            st.caption(
-                f"{enrichment_count} selected for enrichment · "
-                f"{len(grok_prospects) - enrichment_count} will be archived to Cold Leads"
-            )
-
-            enrich_btn = st.button(
-                f"🚀 Enrich & Draft Outreach for {enrichment_count} Selected"
-                if enrichment_count > 0
-                else "⬆️ Select at least one company above",
-                type="primary",
-                use_container_width=True,
-                key="enrich_btn",
-                disabled=enrichment_count == 0,
-            )
-
-            if enrich_btn:
-                _apply_model_overrides()
-                enrichment_names = {
-                    name for name, selected
-                    in st.session_state["enrichment_selections"].items()
-                    if selected
-                }
-                log_stream = st.session_state.get("log_stream")
-                if log_stream:
-                    log_stream.truncate(0)
-                    log_stream.seek(0)
-
-                with st.status(
-                    f"Enriching {enrichment_count} selected prospect(s)…",
-                    expanded=True,
-                ) as status:
-                    st.write("🔗 Apollo → Exa exec intel → Claude Sonnet → Claude Opus → Sheets…")
-                    try:
-                        from core.sheets import SheetsClient
-                        sc = SheetsClient()
-                        results = main.run_enrichment_from_selection(
-                            query=st.session_state.get("grok_query", ""),
-                            bu=bu,
-                            all_prospects=grok_prospects,
-                            enrichment_names=enrichment_names,
-                            run_id=st.session_state.get("grok_run_id", ""),
-                            dry_run=is_dry_run,
-                            discovery=st.session_state.get("grok_discovery"),
-                            sheets=sc,
-                        )
-                        status.update(
-                            label="✅ Enrichment complete!",
-                            state="complete",
-                            expanded=False,
-                        )
-                    except Exception as exc:
-                        status.update(label="❌ Enrichment error", state="error", expanded=True)
-                        st.error(f"**Error:** {exc}")
-                        st.exception(exc)
-                        results = []
 
     # -----------------------------------------------------------------------
     # ACCOUNT INTELLIGENCE TAB

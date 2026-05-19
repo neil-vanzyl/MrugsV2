@@ -17,7 +17,99 @@ from utils.helpers import with_retries
 logger = logging.getLogger("ott_lead_gen.grok")
 
 @with_retries(max_attempts=3, delay=15.0, exceptions=(Exception,))
-def run_research_waterfall(query: str, usage_tracker=None) -> dict:
+def run_discovery_waterfall(brief: str, bu: str = "", usage_tracker=None) -> dict:
+    """
+    Lightweight discovery sweep — uses discovery_scout.py as the system prompt
+    instead of scout.py. Tells Grok to scan broadly and return company names
+    with one-line evidence only. No deep research, no power map, no scoring.
+
+    Called by run_discovery_sweep() in main.py.
+    run_research_waterfall() is used for the subsequent per-company deep dives.
+    """
+    if not config.XAI_API_KEY:
+        raise ValueError("XAI_API_KEY is not set.")
+
+    from prompts.discovery_scout import build_discovery_system_prompt, build_discovery_user_prompt
+
+    system_prompt = build_discovery_system_prompt()
+    user_prompt   = build_discovery_user_prompt(brief, bu=bu)
+
+    logger.info(f"Grok Discovery: scanning for companies | BU={bu} | brief={brief[:80]}...")
+
+    url     = "https://api.x.ai/v1/responses"
+    headers = {
+        "Content-Type":  "application/json",
+        "Authorization": f"Bearer {config.XAI_API_KEY}",
+    }
+
+    payload = {
+        "model": config.GROK_SCOUT_MODEL,
+        "input": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
+        "tools": [
+            {"type": "web_search"},
+            {"type": "x_search"},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1,
+        "store_messages": True,
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=180)
+
+    if response.status_code != 200:
+        logger.error(f"Grok Discovery API Error {response.status_code}: {response.text}")
+        response.raise_for_status()
+
+    data = response.json()
+
+    raw = ""
+    for item in data.get("output", []):
+        if item.get("type") == "message" and "content" in item:
+            for part in item["content"]:
+                if part.get("type") == "output_text":
+                    raw = part.get("text", "")
+                    break
+        elif item.get("type") == "text":
+            raw = item.get("text", "")
+        if raw:
+            break
+
+    logger.info(f"Grok Discovery: response received — {len(raw)} chars")
+
+    if usage_tracker is not None:
+        usage_data = data.get("usage", {})
+        usage_tracker.record_grok(
+            input_tokens=usage_data.get("input_tokens", 0),
+            output_tokens=usage_data.get("output_tokens", 0),
+        )
+
+    if not raw:
+        raise ValueError("Grok Discovery returned empty response.")
+
+    cleaned = raw.strip()
+    if not cleaned.startswith("{"):
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if m:
+            cleaned = m.group(0)
+
+    try:
+        result = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        logger.error(f"Grok Discovery JSON parse failed: {exc}\nRaw:\n{raw[:500]}")
+        raise
+
+    companies = result.get("companies", [])
+    logger.info(f"Grok Discovery: {len(companies)} companies found")
+    for c in companies:
+        logger.info(f"  · {c.get('name')} [{c.get('signal_type')}] — {c.get('evidence', '')[:80]}")
+
+    return result
+
+
+
     if not config.XAI_API_KEY:
         raise ValueError("XAI_API_KEY is not set.")
 

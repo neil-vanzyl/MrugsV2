@@ -546,14 +546,14 @@ def run_discovery_sweep(
     sheets: SheetsClient = None,
 ) -> dict:
     """
-    Lightweight Grok pass: given a research brief, find 8-10 company names
-    with one-line evidence each. Fast (~60-90s) and cheap.
-    No scoring, no power map — just a company list for the selection UI.
+    Lightweight Grok pass using the discovery system prompt (not scout.py).
+    Scans the web broadly for company names with one-line evidence each.
+    Fast (~60-90s), cheap, no deep research.
 
     Returns:
         {
             "run_id":         str,
-            "companies":      List[dict],  # name, domain, evidence, signal_type, source_url
+            "companies":      List[dict],
             "search_summary": str,
             "bu":             str,
             "brief":          str,
@@ -561,7 +561,7 @@ def run_discovery_sweep(
             "sheets":         SheetsClient,
         }
     """
-    from prompts.discovery_scout import build_discovery_prompt
+    from tools.grok import run_discovery_waterfall
 
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     usage  = usage  or RunUsage(brief[:80])
@@ -571,35 +571,18 @@ def run_discovery_sweep(
     logger.info(f"Discovery Sweep: BU={bu} | brief={brief[:80]}...")
     logger.info(f"{'='*65}")
 
-    discovery_prompt = build_discovery_prompt(brief, bu=bu)
-
     usage.start_prospect("_discovery_sweep")
     t0 = time.monotonic()
-    companies = []
+    companies      = []
     search_summary = ""
 
     try:
-        raw_result  = run_research_waterfall(discovery_prompt, usage_tracker=usage)
-        # Discovery scout returns {"companies": [...], "search_summary": "..."}
-        # wrapped in the standard {"prospects": [...]} envelope by run_research_waterfall
-        # We check both shapes
-        companies      = raw_result.get("companies", [])
-        search_summary = raw_result.get("search_summary", "")
+        result         = run_discovery_waterfall(brief, bu=bu, usage_tracker=usage)
+        companies      = result.get("companies", [])
+        search_summary = result.get("search_summary", "")
+        duration_ms    = int((time.monotonic() - t0) * 1000)
 
-        # Fallback: if Grok wrapped in prospects envelope
-        if not companies and raw_result.get("prospects"):
-            for p in raw_result["prospects"]:
-                companies.append({
-                    "name":        p.get("name", ""),
-                    "domain":      p.get("domain", ""),
-                    "hq_country":  "",
-                    "evidence":    p.get("causal_inflection", "") or p.get("transition_gap_timer", ""),
-                    "signal_type": p.get("opportunity_type", "other"),
-                    "source_url":  "",
-                })
-
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        cur = usage._prospects[0] if usage._prospects else None
+        cur = usage._prospects[-1] if usage._prospects else None
         sheets.write_log(
             run_id=run_id, query=brief[:120], company="—", domain="—",
             step="Discovery Sweep", status="OK",
@@ -608,9 +591,7 @@ def run_discovery_sweep(
             tokens_out=cur.grok_output_tokens if cur else 0,
             duration_ms=duration_ms,
         )
-        logger.info(f"Discovery Sweep: {len(companies)} companies in {duration_ms}ms")
-        for c in companies:
-            logger.info(f"  · {c.get('name')} — {c.get('signal_type')} — {c.get('evidence', '')[:80]}")
+        logger.info(f"Discovery Sweep complete: {len(companies)} companies in {duration_ms}ms")
 
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
