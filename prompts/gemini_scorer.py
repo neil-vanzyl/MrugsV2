@@ -1,162 +1,145 @@
 """
-prompts/gemini_scorer.py — Prompts for Gemini's two discovery jobs.
+prompts/gemini_scorer.py — Gemini's single job: assemble a structured
+research brief from the intake form selections.
 
-Kept separate so scoring philosophy and search strategy can be updated
-independently of the Gemini client code.
+The brief is passed directly to Grok, which does its own live web search
+to find and research companies. Exa is no longer used in the discovery path.
 """
 
 # ---------------------------------------------------------------------------
-# Job 1 — Query translation prompt
+# Brief assembly prompt
 # ---------------------------------------------------------------------------
 
+BRIEF_ASSEMBLY_PROMPT = """
+You are a Senior Sales Intelligence Researcher at Accedo (https://www.accedo.tv),
+a premium OTT front-end development firm. You have 12 years of experience closing
+deals with NBC Sports, FloSports, Spark Sport, SonyLIV, MasterClass, and dozens of others.
 
-TRANSLATE_PROMPT = """
-You are an expert OTT industry researcher specialising in finding emerging and
-established companies on LinkedIn. Your job is to convert a natural language
-sales discovery query into 3 precise Exa search strings that will find relevant
-companies on LinkedIn company pages.
+Your job is to take a sales rep's intake form selections and assemble them into a
+precise, structured research brief that Grok will use to find and qualify companies.
 
-CRITICAL RULES:
-- Companies in niche verticals rarely use industry jargon in their LinkedIn descriptions
-- Always generate 3 search strings using DIFFERENT terminology for the same concept
-- String 1: use the technical or industry term the query uses
-- String 2: use how the COMPANY would describe itself on LinkedIn
-- String 3: use the AUDIENCE, USE CASE, or DISTRIBUTION METHOD description
-- Each string MUST start with "site:linkedin.com/company"
-- Be specific about geography when the query mentions it (North America, US, Canada etc.)
-- Include stage indicators when relevant (startup, scale-up, Series A, early-stage)
+The brief must be specific enough that Grok can find REAL companies with REAL signals —
+not generic descriptions. It should read like a briefing from a senior sales director
+to a research analyst, not a search query.
 
-TERMINOLOGY TRANSLATION GUIDE — niche verticals need creative translation:
-- "microdrama" or "vertical shorts" → "short-form mobile video", "episodic mobile content",
-  "vertical video entertainment", "mobile-first streaming series"
-- "faith-based streaming" → "Christian media", "religious content", "faith entertainment"
-- "e-sports streaming" → "gaming content", "competitive gaming media", "esports broadcast"
-- "FAST channel" → "free ad-supported streaming", "linear streaming", "AVOD channel"
-- "CTV expansion" → "connected TV", "smart TV apps", "living room entertainment"
-- "OTT migration" → "streaming platform", "direct-to-consumer video", "digital distribution"
-- "ViewLift customer" → "sports streaming", "niche SVOD", "white-label OTT"
-
-EXAMPLES:
-
-Query: "microdrama apps expanding to CTV North America"
-Good strings:
-  "site:linkedin.com/company short-form mobile video streaming North America"
-  "site:linkedin.com/company vertical video entertainment platform connected TV"
-  "site:linkedin.com/company episodic mobile content series CTV expansion"
-Bad strings (too literal, companies don't use these terms):
-  "site:linkedin.com/company microdrama vertical shorts CTV expansion"
-
-Query: "faith-based streaming services evaluating bespoke OTT apps"
-Good strings:
-  "site:linkedin.com/company Christian media streaming entertainment platform"
-  "site:linkedin.com/company religious content video on demand faith network"
-  "site:linkedin.com/company faith entertainment SVOD connected TV apps"
-
-Query: "regional sports broadcasters running on ViewLift"
-Good strings:
-  "site:linkedin.com/company regional sports network streaming direct-to-consumer"
-  "site:linkedin.com/company sports media OTT platform broadcast rights"
-  "site:linkedin.com/company sports streaming subscription video white-label"
-
-VENDOR DISPLACEMENT QUERIES — never search for vendor names on company pages.
-Instead search for the TYPE of company that uses that vendor:
-- "ViewLift customer" → "niche sports streaming subscription", "regional sports network OTT"
-- "24i customer" → "broadcast network streaming", "public broadcaster OTT platform"  
-- "3SS customer" → "European sports league streaming", "telco TV platform operator"
-- "OTTera customer" → "independent streaming service AVOD SVOD platform"
-- Companies using these vendors are typically: sports leagues, broadcasters, 
-  regional networks, telcos, faith networks, niche SVOD services
-
-Query: "independent sports league using 3SS or 24i looking for alternative"
-Good strings:
-  "site:linkedin.com/company independent sports league streaming direct-to-consumer"
-  "site:linkedin.com/company sports organization OTT platform subscription video"
-  "site:linkedin.com/company sports league digital media streaming broadcast rights"
-Bad strings (vendors never appear on company LinkedIn pages):
-  "site:linkedin.com/company sports league 24i OTT streaming"
-  "site:linkedin.com/company sports league 3SS video infrastructure"
-  
-Return ONLY valid JSON, no preamble, no markdown fences:
-{{
-  "search_strings": [
-    "site:linkedin.com/company [search string 1]",
-    "site:linkedin.com/company [search string 2]",
-    "site:linkedin.com/company [search string 3]"
-  ],
-  "reasoning": "One sentence explaining your terminology translation choices"
-}}
-
-Query to translate: {query}
-"""
-
-
-# ---------------------------------------------------------------------------
-# Job 2 — Creative company scoring prompt
-# ---------------------------------------------------------------------------
-
-SCORE_PROMPT = """
-You are a 12-year veteran Sales Director at Accedo (https://www.accedo.tv),
-a premium OTT front-end development firm. You have closed deals with NBC Sports,
-FloSports, Spark Sport, SonyLIV, MasterClass, Sensical, and dozens of others.
-
-Your job is to look at a list of companies discovered via LinkedIn and identify
-the 5 most likely to need Accedo's services in the next 6-18 months. You are
-selecting which companies Accedo's most expensive research tool (Grok) should
-investigate deeply — so you must be both creative and ruthlessly selective.
-
-ACCEDO'S CORE SERVICES:
+ACCEDO'S CORE SERVICES (reference these when framing the opportunity):
 - Bespoke smart TV app development: Samsung Tizen, LG WebOS, Roku, Fire TV, Apple TV, Android TV
 - SSAI integration, DRM implementation, live/sports streaming architecture
-- Platform migration from white-label vendors (ViewLift, 24i, 3SS, OTTera)
+- Platform migration from white-label vendors (ViewLift, 24i, 3SS, OTTera, Endeavor Streaming)
 - Multi-platform unification after M&A
-- Concurrency architecture for live events
+- Team augmentation: engineering, QA, UX/UI
+- Managed services and support
 - First-time CTV builds for mobile-first or social-first companies
 
-SCORING PHILOSOPHY — go beyond the obvious signals. Look for:
-- FISCAL URGENCY: Companies burning VC runway fast need to show ROI quickly —
-  platform expansion = investor milestone = urgency
-- AMBITION GAP: Strong social/mobile presence with zero CTV footprint =
-  the obvious next move they haven't made yet
-- HIRING SIGNALS: A new "Head of Partnerships" or "VP Business Development"
-  hire = deals are coming that need platform support
-- PIVOT INDICATORS: Recent rebrand, name change, or pivot = infrastructure
-  decisions being made right now
-- FUNDING WINDOW: Series A just closed = 12-18 month window before they
-  build in-house — Accedo must get in now
-- CONTENT AMBITION: A company betting big on premium content with a weak
-  tech platform = the platform will become the bottleneck
-- AUDIENCE OVERLAP: Companies targeting demographics that over-index on CTV
-  (35-65, suburban, sports fans) with no CTV app = leaving money on the table
-- COMPETITIVE PRESSURE: If their closest competitor just launched on Roku or
-  Tizen, they are already behind
-- FIRST-TIME BUILDER: A company that has never built OTT before is MORE likely
-  to need Accedo than one with an existing (even bad) platform — no internal
-  expertise means no in-house build option
+INTAKE FORM:
+Verticals selected: {verticals}
+Signals selected: {signals}
+Additional context: {context}
+Business Unit (geography focus): {bu}
 
-Ask yourself for each company: "What is this company about to need that they
-don't know they need yet?"
+GEOGRAPHY GUIDANCE:
+- NAM: Focus on companies headquartered in North America (US, Canada, Mexico)
+- E&L: Focus on companies headquartered in Europe or Latin America
+- APAC: Focus on companies headquartered in Asia Pacific (including Australia and New Zealand)
+- Companies with global operations are fine — HQ location is the filter, not operational footprint
 
-COMPANIES TO EVALUATE:
-{companies}
+BRIEF ASSEMBLY RULES:
+1. Write the brief in second person directed at Grok ("Find...", "Look for...", "Prioritise...")
+2. Be specific about what signals to look for based on the selections
+3. Include the geography constraint naturally — frame it as HQ location preference
+4. If specific vendors are mentioned in context, instruct Grok to look for displacement signals
+5. If hiring signals are selected, specify the exact role types to look for
+6. Tier guidance: Accedo sells to Tier 1 and Tier 2 organisations — avoid startups under 50 employees
+7. The brief should be 150-250 words — substantive but scannable
+8. End with a one-line priority instruction: what is the single most important signal to find?
 
-ORIGINAL QUERY CONTEXT:
-{query}
-
-Return ONLY valid JSON, no preamble, no markdown fences:
+Return ONLY a JSON object, no preamble, no markdown fences:
 {{
-  "selected": [
-    {{
-      "name": "Company name exactly as provided",
-      "linkedin_url": "Their LinkedIn URL",
-      "reasoning": "1-2 sentences explaining the creative insight — what are they about to need and why now",
-      "signal_type": "fiscal_urgency | ambition_gap | pivot_indicator | funding_window | competitive_pressure | content_ambition | audience_overlap | hiring_signal | first_time_builder"
-    }}
-  ],
-  "rejected": [
-    {{
-      "name": "Company name",
-      "reason": "One sentence — why Accedo should not spend research credits on this company right now"
-    }}
-  ]
+  "brief": "The full research brief text, 150-250 words, ready to send to Grok",
+  "query_summary": "10-15 word plain English summary of what we're hunting for (shown to rep)",
+  "signal_focus": ["list", "of", "2-4", "primary", "signal", "types", "selected"]
 }}
 """
+
+# ---------------------------------------------------------------------------
+# Randomizer configurations — used by the Suggest button to auto-fill the form
+# Each entry maps to the exact field names used in the intake form
+# ---------------------------------------------------------------------------
+
+RANDOM_CONFIGS = [
+    {
+        "verticals": ["Sports"],
+        "signals": ["Rights deal", "First CTV build", "Hiring: OTT/CTV engineers"],
+        "context": "Regional sports networks that recently secured new broadcast rights and need to launch a CTV experience before the season starts",
+    },
+    {
+        "verticals": ["News"],
+        "signals": ["First CTV build", "Hiring: Product managers", "Platform consolidation"],
+        "context": "Digital-first news publishers with strong mobile audiences that have not yet built a connected TV presence",
+    },
+    {
+        "verticals": ["Sports", "Entertainment"],
+        "signals": ["Vendor migration", "App store complaints", "Hiring: OTT/CTV engineers"],
+        "context": "Broadcasters showing frustration with ViewLift or 24i — slow releases, poor OEM support, or recent 24i bankruptcy concern",
+    },
+    {
+        "verticals": ["Entertainment"],
+        "signals": ["FAST/AVOD launch", "Funding round", "First CTV build"],
+        "context": "Streaming services that recently closed a funding round and are launching or expanding FAST channels to new platforms",
+    },
+    {
+        "verticals": ["Faith"],
+        "signals": ["First CTV build", "App redesign", "Hiring: UX/UI designers"],
+        "context": "Faith-based media organisations with loyal mobile audiences evaluating their first bespoke smart TV app",
+    },
+    {
+        "verticals": ["Sports"],
+        "signals": ["M&A / platform unification", "Hiring: TPMs", "Platform consolidation"],
+        "context": "Sports media companies that have gone through an acquisition and are now running two separate streaming platforms that need unification",
+    },
+    {
+        "verticals": ["Education"],
+        "signals": ["CTV expansion", "Funding round", "Hiring: Front-end engineers"],
+        "context": "EdTech video platforms that closed Series B or later and are expanding from mobile to connected TV devices",
+    },
+    {
+        "verticals": ["Fitness"],
+        "signals": ["App redesign", "CTV expansion", "Hiring: OTT/CTV engineers"],
+        "context": "Fitness streaming services with strong mobile subscriptions that need to improve or rebuild their smart TV experience",
+    },
+    {
+        "verticals": ["Multi-Vertical"],
+        "signals": ["DTC pivot", "Leadership change", "Hiring: Product managers"],
+        "context": "Traditional media companies announcing a direct-to-consumer streaming pivot with new digital leadership in place",
+    },
+    {
+        "verticals": ["News", "Sports"],
+        "signals": ["Rights deal", "Market expansion", "First CTV build"],
+        "context": "News or sports broadcasters expanding into new territories and needing CTV apps for markets where they have no existing platform",
+    },
+    {
+        "verticals": ["Audio"],
+        "signals": ["CTV expansion", "First CTV build", "Funding round"],
+        "context": "Audio-first platforms (podcasts, music, radio) that are adding video content and need their first CTV application",
+    },
+    {
+        "verticals": ["Pay TV"],
+        "signals": ["Vendor migration", "Platform consolidation", "App store complaints"],
+        "context": "Pay TV operators whose legacy middleware or white-label OTT stack is showing its age — poor app ratings, slow feature delivery",
+    },
+    {
+        "verticals": ["Sports"],
+        "signals": ["Hiring: OTT/CTV engineers", "Hiring: QA automation", "App store complaints"],
+        "context": "Sports streaming services with consistently poor app store ratings for Roku or Fire TV — buffering, DRM, or login issues cited in reviews",
+    },
+    {
+        "verticals": ["Entertainment", "Faith"],
+        "signals": ["FAST/AVOD launch", "First CTV build", "Hiring: Product managers"],
+        "context": "SVOD services pivoting to add a free ad-supported tier and needing SSAI integration across their smart TV apps",
+    },
+    {
+        "verticals": ["In-Vehicle"],
+        "signals": ["First CTV build", "Funding round", "Hiring: Front-end engineers"],
+        "context": "Auto or in-vehicle entertainment companies building video streaming experiences for next-generation vehicle platforms",
+    },
+]

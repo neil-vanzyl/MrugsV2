@@ -22,7 +22,6 @@ Usage:
   python main.py --accounts --bu NAM
 """
 
-from tools.discovery import discover_companies
 from tools.claude_client import qualify_prospect, draft_outreach
 from tools.exa import enrich_prospect_power_map
 from tools.apollo import enrich_power_map, get_contacts_from_power_map
@@ -536,46 +535,107 @@ def run_pipeline(query: str, dry_run: bool = False, bu: str = "") -> List[dict]:
     return summary
 
 # ---------------------------------------------------------------------------
-# discovery pipeline run
-# 
+# Stage 1 — Fast discovery sweep (names + evidence only, no deep research)
+# ---------------------------------------------------------------------------
 
-def run_discovery(query: str, bu: str = "") -> dict:
+def run_discovery_sweep(
+    brief: str,
+    bu: str = "",
+    run_id: str = "",
+    usage: "RunUsage" = None,
+    sheets: SheetsClient = None,
+) -> dict:
     """
-    Stage 0 only — run Gemini + Exa company discovery.
-    Returns discovery metadata for the GUI to display the selection UI.
-    Does NOT run Grok or any downstream steps.
+    Lightweight Grok pass: given a research brief, find 8-10 company names
+    with one-line evidence each. Fast (~60-90s) and cheap.
+    No scoring, no power map — just a company list for the selection UI.
+
+    Returns:
+        {
+            "run_id":         str,
+            "companies":      List[dict],  # name, domain, evidence, signal_type, source_url
+            "search_summary": str,
+            "bu":             str,
+            "brief":          str,
+            "usage":          RunUsage,
+            "sheets":         SheetsClient,
+        }
     """
+    from prompts.discovery_scout import build_discovery_prompt
+
+    run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    usage  = usage  or RunUsage(brief[:80])
+    sheets = sheets or SheetsClient()
+
     logger.info(f"\n{'='*65}")
-    logger.info(f"Discovery: '{query}' | BU={bu}")
+    logger.info(f"Discovery Sweep: BU={bu} | brief={brief[:80]}...")
     logger.info(f"{'='*65}")
 
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    usage  = RunUsage(query)
-    sheets = SheetsClient()
+    discovery_prompt = build_discovery_prompt(brief, bu=bu)
 
-    usage.start_prospect("_grok_research")
+    usage.start_prospect("_discovery_sweep")
+    t0 = time.monotonic()
+    companies = []
+    search_summary = ""
 
-    logger.info("Stage 0: Company Discovery (Gemini + Exa)...")
-    discovery = discover_companies(
-        query,
-        usage_tracker=usage,
-        sheets=sheets,
-        run_id=run_id,
-    )
+    try:
+        raw_result  = run_research_waterfall(discovery_prompt, usage_tracker=usage)
+        # Discovery scout returns {"companies": [...], "search_summary": "..."}
+        # wrapped in the standard {"prospects": [...]} envelope by run_research_waterfall
+        # We check both shapes
+        companies      = raw_result.get("companies", [])
+        search_summary = raw_result.get("search_summary", "")
+
+        # Fallback: if Grok wrapped in prospects envelope
+        if not companies and raw_result.get("prospects"):
+            for p in raw_result["prospects"]:
+                companies.append({
+                    "name":        p.get("name", ""),
+                    "domain":      p.get("domain", ""),
+                    "hq_country":  "",
+                    "evidence":    p.get("causal_inflection", "") or p.get("transition_gap_timer", ""),
+                    "signal_type": p.get("opportunity_type", "other"),
+                    "source_url":  "",
+                })
+
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        cur = usage._prospects[0] if usage._prospects else None
+        sheets.write_log(
+            run_id=run_id, query=brief[:120], company="—", domain="—",
+            step="Discovery Sweep", status="OK",
+            detail=f"{len(companies)} companies found | bu={bu}",
+            tokens_in=cur.grok_input_tokens if cur else 0,
+            tokens_out=cur.grok_output_tokens if cur else 0,
+            duration_ms=duration_ms,
+        )
+        logger.info(f"Discovery Sweep: {len(companies)} companies in {duration_ms}ms")
+        for c in companies:
+            logger.info(f"  · {c.get('name')} — {c.get('signal_type')} — {c.get('evidence', '')[:80]}")
+
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - t0) * 1000)
+        sheets.write_log(
+            run_id=run_id, query=brief[:120], company="—", domain="—",
+            step="Discovery Sweep", status="FAILED",
+            error=str(exc), duration_ms=duration_ms,
+        )
+        logger.error(f"Discovery Sweep failed: {exc}")
+
     usage.end_prospect()
 
     return {
         "run_id":         run_id,
-        "query":          query,
+        "companies":      companies,
+        "search_summary": search_summary,
         "bu":             bu,
-        "discovery":      discovery,
+        "brief":          brief,
         "usage":          usage,
         "sheets":         sheets,
     }
 
 
 # ---------------------------------------------------------------------------
-# Stage 1 only — Grok research (GUI pauses here for enrichment selection)
+# Stage 2 — Per-company deep research (one at a time, progress callback)
 # ---------------------------------------------------------------------------
 
 def run_grok_only(
@@ -585,16 +645,19 @@ def run_grok_only(
     run_id: str,
     usage: "RunUsage" = None,
     sheets: SheetsClient = None,
+    on_company_start: callable = None,
+    on_company_done: callable = None,
 ) -> List[dict]:
     """
-    Run Grok research only on selected companies.
-    Returns raw Grok prospect dicts with scores — no Apollo/Exa/Claude yet.
-    Called by the GUI after the user selects companies from discovery.
-    The GUI then presents scores and lets the user choose which to enrich.
-    CLI path bypasses this and calls run_pipeline_from_selection() directly.
+    Run full scout.py deep research on each selected company, one at a time.
+    Calls on_company_start(name, index, total) before each company starts.
+    Calls on_company_done(name, prospect, index, total) when each completes.
+    These callbacks allow the GUI to update progressively.
+
+    Returns list of raw Grok prospect dicts with full scores.
     """
     logger.info(f"\n{'='*65}")
-    logger.info(f"Grok only: {len(selected_companies)} companies | BU={bu}")
+    logger.info(f"Deep Research: {len(selected_companies)} companies | BU={bu}")
     logger.info(f"{'='*65}")
 
     usage  = usage  or RunUsage(query)
@@ -606,53 +669,79 @@ def run_grok_only(
         "APAC": "Prioritise companies headquartered in Asia Pacific (including Australia and New Zealand).",
     }.get(bu, "")
 
-    usage.start_prospect("_grok_research")
-    t0 = time.monotonic()
     all_prospects = []
+    total = len(selected_companies)
 
-    try:
-        for company in selected_companies:
-            name = company.get("name", "")
-            if not name:
-                continue
-            named_query = (
-                f"{name} — research this company thoroughly for OTT sales intelligence.\n\n"
-                f"ORIGINAL DISCOVERY CONTEXT: {query}\n\n"
-                f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
-                f"Based on that context, research whichever is most relevant:\n"
-                f"- If they have an existing OTT platform: technology infrastructure, "
-                f"OEM strategy, SSAI/DRM, app store ratings, incumbent vendor, job postings\n"
-                f"- If they are pre-platform or mobile-only: content strategy, social "
-                f"audience size, funding history, current distribution platforms, "
-                f"CTV ambition signals, platform expansion announcements\n\n"
-                f"Return intelligence specifically about {name}, not similar companies. "
-                f"Classify this as TYPE_A (pain signal) or TYPE_B (growth catalyst)."
-            )
+    for idx, company in enumerate(selected_companies, 1):
+        name = company.get("name", "")
+        if not name:
+            continue
+
+        # Notify GUI this company is starting
+        if on_company_start:
+            on_company_start(name, idx, total)
+
+        evidence = company.get("evidence", "")
+        signal_type = company.get("signal_type", "")
+
+        named_query = (
+            f"{name} — deep OTT sales intelligence research.\n\n"
+            f"DISCOVERY CONTEXT: {query}\n\n"
+            f"KNOWN SIGNAL: {signal_type} — {evidence}\n\n"
+            f"HEADQUARTERS CONTEXT: {bu_context}\n\n"
+            f"Research this company thoroughly using the full intelligence waterfall. "
+            f"The known signal above is your starting point — verify it and find additional signals. "
+            f"Return intelligence specifically about {name}, not similar companies."
+        )
+
+        usage.start_prospect(name)
+        t0 = time.monotonic()
+
+        try:
             grok_result = run_research_waterfall(named_query, usage_tracker=usage)
-            all_prospects.extend(grok_result.get("prospects", []))
+            prospects   = grok_result.get("prospects", [])
+            duration_ms = int((time.monotonic() - t0) * 1000)
 
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        cur = usage._prospects[0] if usage._prospects else None
-        sheets.write_log(
-            run_id=run_id, query=query, company="—", domain="—",
-            step="Grok", status="OK",
-            detail=f"{len(all_prospects)} prospect(s) returned | user_selected={len(selected_companies)} | bu={bu}",
-            tokens_in=cur.grok_input_tokens if cur else 0,
-            tokens_out=cur.grok_output_tokens if cur else 0,
-            duration_ms=duration_ms,
-        )
+            cur = usage._prospects[-1] if usage._prospects else None
+            sheets.write_log(
+                run_id=run_id, query=query, company=name, domain="",
+                step="Deep Research", status="OK",
+                detail=f"score={prospects[0].get('opportunity_score', '?') if prospects else '?'} | bu={bu}",
+                tokens_in=cur.grok_input_tokens if cur else 0,
+                tokens_out=cur.grok_output_tokens if cur else 0,
+                duration_ms=duration_ms,
+            )
 
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        sheets.write_log(
-            run_id=run_id, query=query, company="—", domain="—",
-            step="Grok", status="FAILED",
-            error=str(exc), duration_ms=duration_ms,
-        )
-        logger.error(f"Grok failed: {exc}")
+            prospect = prospects[0] if prospects else {"name": name, "opportunity_score": 0}
+            all_prospects.append(prospect)
 
-    usage.end_prospect()
+            # Notify GUI this company is done
+            if on_company_done:
+                on_company_done(name, prospect, idx, total)
+
+            logger.info(
+                f"[{idx}/{total}] {name} — "
+                f"score={prospect.get('opportunity_score', '?')} | "
+                f"{duration_ms}ms"
+            )
+
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            sheets.write_log(
+                run_id=run_id, query=query, company=name, domain="",
+                step="Deep Research", status="FAILED",
+                error=str(exc), duration_ms=duration_ms,
+            )
+            logger.error(f"  Deep research failed for '{name}': {exc}")
+            stub = {"name": name, "opportunity_score": 0, "error": str(exc)}
+            all_prospects.append(stub)
+            if on_company_done:
+                on_company_done(name, stub, idx, total)
+
+        usage.end_prospect()
+
     return all_prospects
+
 
 
 # ---------------------------------------------------------------------------

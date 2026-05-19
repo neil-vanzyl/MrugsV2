@@ -21,7 +21,7 @@ from tools.gemini import translate_query, score_companies
 
 logger = logging.getLogger("ott_lead_gen.discovery")
 
-MIN_COMPANIES_FOR_SCORING = 1  # Gemini always scores, even for a single result
+MIN_COMPANIES_FOR_SCORING = 3  # below this, skip Gemini scoring
 TARGET_COMPANY_COUNT = 10      # how many Exa aims to find
 
 
@@ -31,8 +31,9 @@ TARGET_COMPANY_COUNT = 10      # how many Exa aims to find
 
 def _search_companies_exa(search_strings: List[str]) -> List[dict]:
     """
-    Search for companies on LinkedIn using Exa.
-    Returns deduplicated list of dicts with 'name' and 'linkedin_url'.
+    Search the open web for signal articles, press releases, and job postings
+    that name companies with OTT buying intent. Extract company names from results.
+    Returns deduplicated list of dicts with 'name', 'source_url', and 'exa_snippet'.
     """
     if not config.EXA_API_KEY:
         logger.warning("Discovery: EXA_API_KEY not set — skipping company search")
@@ -46,7 +47,7 @@ def _search_companies_exa(search_strings: List[str]) -> List[dict]:
         return []
 
     companies = []
-    seen_urls = set()
+    seen_names: set = set()
 
     for search_str in search_strings:
         try:
@@ -55,45 +56,64 @@ def _search_companies_exa(search_strings: List[str]) -> List[dict]:
                 search_str,
                 type="auto",
                 num_results=6,
-                include_domains=["linkedin.com"],
-                text={"max_characters": 400},
+                text={"max_characters": 500},
             )
 
             for r in getattr(results, "results", []):
-                url = getattr(r, "url", "") or ""
-                if "linkedin.com/company" not in url:
-                    continue
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
-
-                # Extract company name from title or URL slug
+                url   = getattr(r, "url", "") or ""
                 title = getattr(r, "title", "") or ""
-                name = title.split("|")[0].split("-")[0].strip()
-                if not name:
-                    slug = url.rstrip("/").split("/")[-1]
-                    name = slug.replace("-", " ").title()
 
-                # Extract text snippet — LinkedIn descriptions, taglines, follower counts
-                text_content = ""
-                raw_text = getattr(r, "text", None)
-                if raw_text:
-                    # Trim to a clean one-paragraph snippet
-                    text_content = raw_text.strip()[:350]
+                # Skip results that are clearly not useful
+                if any(skip in url.lower() for skip in [
+                    "linkedin.com/jobs", "indeed.com", "glassdoor.com",
+                    "wikipedia.org", "youtube.com",
+                ]):
+                    continue
+
+                raw_text = getattr(r, "text", "") or ""
+                snippet  = raw_text.strip()[:500]
+
+                # Extract company name: prefer title, fall back to domain
+                name = ""
+                if title:
+                    # Titles like "Nexstar Launches CTV App on Roku" → "Nexstar"
+                    # Titles like "Company X | About" → "Company X"
+                    name = title.split("|")[0].split("–")[0].split("—")[0].strip()
+                    # Trim trailing verbs that leaked in ("Nexstar Launches" is fine,
+                    # but cap at 5 words to avoid full headline as name)
+                    words = name.split()
+                    if len(words) > 5:
+                        name = ""  # too long to be a clean company name — use domain
+
+                if not name:
+                    from urllib.parse import urlparse
+                    host = urlparse(url).hostname or ""
+                    parts = host.replace("www.", "").split(".")
+                    name = parts[0].replace("-", " ").title() if parts else ""
+
+                if not name:
+                    continue
+
+                # Deduplicate by normalised name
+                name_key = name.lower().strip()
+                if name_key in seen_names:
+                    continue
+                seen_names.add(name_key)
 
                 companies.append({
-                    "name": name,
-                    "linkedin_url": url,
-                    "exa_title": title,
-                    "exa_snippet": text_content,
+                    "name":        name,
+                    "linkedin_url": "",          # populated by Grok later if needed
+                    "source_url":  url,
+                    "exa_title":   title,
+                    "exa_snippet": snippet,
                 })
-                logger.debug(f"  Found: {name} ({url})")
+                logger.debug(f"  Found: {name} ({url[:60]})")
 
         except Exception as exc:
             logger.warning(f"Discovery: Exa search failed for '{search_str[:60]}': {exc}")
             continue
 
-    logger.info(f"Discovery: Exa found {len(companies)} unique companies")
+    logger.info(f"Discovery: Exa found {len(companies)} unique companies from open-web signals")
     return companies
 
 
