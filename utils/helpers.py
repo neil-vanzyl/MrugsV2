@@ -40,7 +40,7 @@ def setup_logging(level: int = logging.INFO) -> None:
         pipeline_logger.addHandler(c_handler)
 
         try:
-            f_handler = logging.FileHandler("ott_lead_gen.log", encoding="utf-8")
+            f_handler = logging.FileHandler("/tmp/ott_lead_gen.log", encoding="utf-8")
             f_handler.setFormatter(formatter)
             pipeline_logger.addHandler(f_handler)
         except Exception as exc:
