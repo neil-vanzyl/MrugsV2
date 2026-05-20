@@ -1,20 +1,12 @@
 """
 prompts/copywriter.py — Claude Opus pitch drafting prompt.
 
-Upgraded with:
-  1. Accedo customer proof points from customers.json — real client names,
-     real delivery outcomes, real platforms and timescales. Claude now opens
-     emails with "we solved this for [real client]" instead of "[similar client]".
-  2. Accedo product capability grounding from products.json — specific product
-     names and features mapped to OTT pain categories. Avoids generic "we can
-     help" and replaces it with "Accedo Build XDK deployed across LG/Tizen in
-     6 weeks for FloSports" style proof.
-  3. LinkedIn quote rule (highest priority) — unchanged from previous version.
+Upgraded to read deterministic friction angles (Tech Stack + App Velocity)
+directly from the new Python scrapers.
 """
 
 # ---------------------------------------------------------------------------
 # Accedo proof point library — sourced directly from customers.json
-# These are real deliveries. Claude must only use these — never fabricate.
 # ---------------------------------------------------------------------------
 
 ACCEDO_PROOF_POINTS = """
@@ -40,10 +32,6 @@ AVOD / AD TECH:
 - Sensical: Free AVOD kids service — custom ad UI, parental controls, kid-safe TikTok vertical feed
 - CBC Radio-Canada: SSAI upgrade for premium + ad-supported Olympic tiers
 
-KIDS / EDUCATION:
-- MasterClass: Global CTV expansion with performance improvements on low-end devices
-- Sensical: Full AVOD kids service design + development
-
 SUPPORT / STABILITY:
 - SonyLIV: Crash fix during live World Cup — then permanent stabilisation (70M users)
 - ASTRO: RPM fix 1.3K → 100K before World Cup
@@ -52,10 +40,10 @@ SUPPORT / STABILITY:
 - Showtime: Ongoing Android team augmentation
 
 ACCEDO PRODUCTS TO REFERENCE BY NAME:
-- Accedo Build XDK: CTV cross-platform framework — LG WebOS, Tizen, Fire TV, Android TV, Vizio, Hisense, Panasonic, PS4/PS5, Xbox (used by NBC Sports, Spark Sport, FloSports, CBC)
-- Accedo Build for Sports: Native sports framework — real-time stats, live chat, betting integrations, PPV, social interactivity
-- Accedo Control: Real-time app config management without code changes — A/B testing, audience segmentation, localisation
-- Accedo Compose: AI-native OTT orchestration — predictive churn intelligence, CDN failover, dynamic UI personalisation
+- Accedo Build XDK: CTV cross-platform framework (used by NBC Sports, Spark Sport, FloSports)
+- Accedo Build for Sports: Native sports framework — real-time stats, live chat, PPV
+- Accedo Control: Real-time app config management without code changes
+- Accedo Compose: AI-native OTT orchestration — predictive churn intelligence, CDN failover
 """
 
 # ---------------------------------------------------------------------------
@@ -75,175 +63,82 @@ RULES:
 1. NEVER open with "I hope this finds you well", "I wanted to reach out",
    "My name is", or any pleasantry. Ever.
 
-2. LINKEDIN QUOTE RULE (highest priority):
-   If a TOP_QUOTE_TO_USE_AS_OPENER is provided for this exec, you MUST open
+2. LINKEDIN QUOTE RULE: If a TOP_QUOTE_TO_USE_AS_OPENER is provided, you MUST open
    with it verbatim in quotation marks, then pivot immediately to the risk.
-   Format: '"[their exact words]" — [the specific risk that creates for them].'
 
-3. PROOF POINT RULE (second priority — strictly enforced):
-   Every email MUST contain one specific Accedo customer proof point from the
-   verified list above. Rules:
-   a) Name the EXACT client from the list. "A comparable RSN" is forbidden.
-   b) Name the EXACT outcome. "Improved performance" is forbidden.
-   c) Any statistic (%, timeframe, user count) MUST come from the list above.
-      Do not fabricate numbers. "40% latency reduction" is only valid if it
-      appears in the proof point library. If you cannot find a matching stat,
-      describe the outcome without numbers rather than inventing one.
-   d) After every proof point claim, append the client name in parentheses:
-      "...we stabilised the platform under 70 million concurrent users (SonyLIV)."
-   This tagging makes fabrication immediately visible in review.
+3. DETERMINISTIC FRICTION RULE: If a displacement_angle or friction_angle is provided, 
+   you MUST build your pitch around that specific technical debt (e.g., decaying apps or legacy vendor constraints).
 
-4. PRODUCT NAMING RULE:
-   When referencing Accedo's capability, name the specific product:
-   Accedo Build XDK / Accedo Build for Sports / Accedo Control / Accedo Compose.
-   Never say "our platform" or "our solution" without naming it.
+4. PROOF POINT RULE: Every email MUST contain ONE specific Accedo customer proof point 
+   from the verified list above that matches their specific pain. Name the EXACT client.
 
-4b. ANTI-FABRICATION CHECK (run before outputting):
-   Read every quantified claim in your draft. For each one, ask:
-   "Does this number appear in the ACCEDO VERIFIED CUSTOMER PROOF POINTS above?"
-   If no → remove the number and rephrase as a qualitative outcome.
-   If yes → keep it and tag the client source in parentheses.
+5. PRODUCT NAMING RULE: Name the specific Accedo product (Accedo Build XDK, etc.).
 
-5. If no LinkedIn quote: open with a specific technical signal or quantified
-   business risk. The first sentence must make them think "how do they know that?"
+6. Write like a peer advising a peer. CTA must be a Peer Review offer (e.g., "Can I share the concurrency model we built for CBC?").
 
-6. Write like a peer advising a peer — never like a vendor pitching a buyer.
-
-7. CTA must be a Peer Review offer:
-   "Happy to share the concurrency model we built for CBC during the Olympics"
-   "Can I send you the Roku certification roadmap we used for FloSports?"
-   NOT "let's jump on a call."
-
-8. Max 120 words per email. Three paragraphs maximum.
-
-9. No sign-off. No "Best regards." The email ends with the CTA.
-
-10. No markdown. Plain text only. No bullet points.
-
-11. You are a script component. Output ONLY valid JSON. Never refuse or add prose.
-
-Return ONLY a JSON object:
-{{
-  "visionary_email": {{
-    "subject_line": "Specific subject that creates a curiosity gap",
-    "body": "Plain text email body. No markdown. No sign-off."
-  }},
-  "operator_email": {{
-    "subject_line": "",
-    "body": ""
-  }}
-}}
-""".strip()
-
+7. Max 120 words per email. Three paragraphs maximum. No sign-off. Plain text only.
+"""
 
 # ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
 
 def build_copywriter_prompt(prospect: dict, analyst: dict) -> str:
-    """
-    Build the user-turn prompt for the Copywriter.
-
-    Surfaces linkedin_intel so Claude knows whether to use the exec's own
-    words as the opener, and maps the prospect's pain to the correct
-    Accedo proof point from the library above.
-    """
     import json
 
-    company  = prospect.get("name", "")
-    domain   = prospect.get("domain", "")
+    company = prospect.get("name", "")
     visionary = prospect.get("power_map", {}).get("the_visionary", {})
-    operator  = prospect.get("power_map", {}).get("the_operator", {})
-    outreach  = prospect.get("outreach", {})
-    signals   = prospect.get("signals", [])[:3]
-    stack     = prospect.get("tech_stack_fingerprint", {})
-    app       = prospect.get("app_intelligence", {})
+    operator = prospect.get("power_map", {}).get("the_operator", {})
+    
+    stack = prospect.get("tech_stack_fingerprint", {})
+    app = prospect.get("app_intelligence", {})
+    signals = prospect.get("signals", [])[:3]
 
     vis_li = visionary.get("linkedin_intel", {})
     ops_li = operator.get("linkedin_intel", {})
 
-    def _li_block(li: dict, name: str, title: str) -> dict:
-        if not li or li.get("result") == "no_relevant_posts":
+    def _li_block(li: dict) -> dict:
+        if not li or not li.get("linkedin_posts_found"):
             return {"linkedin_posts_found": False}
-        block = {"linkedin_posts_found": True, "name": name, "title": title}
-        if li.get("top_quote"):
-            block["TOP_QUOTE_TO_USE_AS_OPENER"] = li["top_quote"]
-            block["quote_url"]  = li.get("top_quote_url", "")
-            block["quote_date"] = li.get("top_quote_date", "")
-            block["INSTRUCTION"] = (
-                "OPEN THIS EMAIL with the TOP_QUOTE_TO_USE_AS_OPENER above. "
-                "Quote it directly then pivot to the risk. Do not paraphrase."
-            )
-        if li.get("expressed_pain_themes"):
-            block["pain_they_have_expressed_publicly"] = li["expressed_pain_themes"]
-        if li.get("expressed_ambition_themes"):
-            block["ambitions_they_have_expressed_publicly"] = li["expressed_ambition_themes"]
-        if li.get("ott_topics_they_discuss"):
-            block["ott_topics_in_their_posts"] = li["ott_topics_they_discuss"]
-        return block
+        return li
 
     context = {
-        "company":  company,
-        "domain":   domain,
-        "causal_inflection":  prospect.get("causal_inflection", ""),
-        "transition_gap":     prospect.get("transition_gap_timer", ""),
-        "opportunity_type":   prospect.get("opportunity_type", ""),
-        "tech_stack":         stack,
-        "app_ratings": {
-            "ios":              app.get("ios_rating"),
-            "android":          app.get("android_rating"),
-            "top_complaints":   app.get("top_complaint_themes", []),
-            "sample_review_quote": app.get("sample_review_quote", ""),
+        "company": company,
+        "analyst_verdict": analyst.get("verdict", ""),
+        "transition_gap_confirmed": analyst.get("transition_gap_confirmed", ""),
+        "top_entry_point": analyst.get("top_entry_point", ""),
+        "copywriter_brief": analyst.get("copywriter_brief", ""),
+        
+        # New Deterministic Inputs
+        "tech_stack": {
+            "incumbent_vendor": stack.get("incumbent_vendor", "unknown"),
+            "displacement_angle": stack.get("incumbent_displacement_angle", ""),
+            "cdn": stack.get("cdn", "unknown")
         },
+        "app_health": {
+            "release_velocity_status": app.get("release_velocity_status", ""),
+            "friction_angle": app.get("friction_angle", ""),
+            "ios_rating": app.get("ios_rating", ""),
+            "android_rating": app.get("android_rating", "")
+        },
+        
+        "news_signals": [s.get("evidence") for s in signals],
+        
         "visionary": {
-            "name":              visionary.get("name", ""),
-            "title":             visionary.get("title", ""),
-            "linkedin_url":      visionary.get("linkedin", ""),
-            "grok_hook":         outreach.get("visionary", {}).get("hook", ""),
-            "risk_quantification": outreach.get("visionary", {}).get("risk_quantification", ""),
-            "suggested_cta":     outreach.get("visionary", {}).get("call_to_action", ""),
-            "linkedin_intelligence": _li_block(vis_li, visionary.get("name", ""), visionary.get("title", "")),
+            "name": visionary.get("name", "Visionary"),
+            "title": visionary.get("title", ""),
+            "linkedin_intelligence": _li_block(vis_li),
         },
         "operator": {
-            "name":              operator.get("name", ""),
-            "title":             operator.get("title", ""),
-            "linkedin_url":      operator.get("linkedin", ""),
-            "grok_hook":         outreach.get("operator", {}).get("hook", ""),
-            "technical_evidence": outreach.get("operator", {}).get("technical_evidence", ""),
-            "accedo_proof_point": outreach.get("operator", {}).get("accedo_proof_point", ""),
-            "suggested_cta":     outreach.get("operator", {}).get("call_to_action", ""),
-            "linkedin_intelligence": _li_block(ops_li, operator.get("name", ""), operator.get("title", "")),
-        },
-        "top_signals": [
-            {
-                "type":     s.get("signal_type"),
-                "evidence": s.get("evidence"),
-                "source":   s.get("source_url") or s.get("source_type"),
-            }
-            for s in signals
-        ],
-        "analyst_brief":            analyst.get("copywriter_brief", ""),
-        "top_entry_point":          analyst.get("top_entry_point", ""),
-        "key_risk_if_no_action":    analyst.get("key_risk_if_no_action", ""),
-        "linkedin_modifier_applied": analyst.get("linkedin_modifier_applied", ""),
-        "objection_stack":          outreach.get("objection_stack", []),
-        "PROOF_POINT_INSTRUCTION": (
-            "You MUST include one specific Accedo customer proof point from your "
-            "system prompt that maps to this prospect's pain category. "
-            f"Opportunity type: {prospect.get('opportunity_type', 'unknown')}. "
-            "Match the proof point to the pain — sports/live → NBC Sports/Spark Sport/FloSports, "
-            "AVOD → Sensical/CBC, CTV launch → MasterClass/STARZ, "
-            "stability/crash → SonyLIV/ASTRO/Telkomsel, migration → Neon/Showtime."
-        ),
+            "name": operator.get("name", "Operator"),
+            "title": operator.get("title", ""),
+            "linkedin_intelligence": _li_block(ops_li),
+        }
     }
 
     return (
-        f"Write two outreach emails for {company} ({domain}).\n\n"
-        f"PRIORITY RULES:\n"
-        f"1. If linkedin_intelligence contains a TOP_QUOTE_TO_USE_AS_OPENER, "
-        f"open that exec's email with it verbatim.\n"
-        f"2. Include ONE specific Accedo proof point per email — name the client, "
-        f"the outcome, the timeline. No generic references.\n"
-        f"3. Name the specific Accedo product being positioned.\n\n"
+        f"Write two outreach emails for {company}.\n\n"
         f"INTELLIGENCE PACKAGE:\n{json.dumps(context, indent=2, ensure_ascii=False)}"
     )
+
+    
