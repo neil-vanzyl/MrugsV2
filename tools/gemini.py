@@ -157,3 +157,94 @@ def assemble_brief(
             "query_summary": f"{', '.join(verticals)} — {', '.join(signals[:2])}",
             "signal_focus": signals[:4],
         }
+
+# ---------------------------------------------------------------------------
+# Query Translation (Brief -> Exa Search Strings)
+# ---------------------------------------------------------------------------
+
+def translate_query(query: str, usage_tracker=None) -> List[str]:
+    """Converts the user's research brief into targeted Exa search strings."""
+    prompt = f"""
+    You are an expert search Boolean architect. Convert the following B2B sales research brief 
+    into 3 distinct, highly targeted search queries optimized for finding recent news, 
+    press releases, or job postings about companies matching the criteria.
+    
+    RESEARCH BRIEF:
+    {query}
+    
+    RULES:
+    1. Queries should be plain text optimized for semantic search engines (like Exa).
+    2. Focus on the action/signal (e.g., "OTT platform launch", "streaming rights deal").
+    3. Do not use complex boolean operators (AND/OR). Write natural semantic searches.
+    
+    Return ONLY a JSON object:
+    {{
+        "search_strings": ["query 1", "query 2", "query 3"]
+    }}
+    """
+    
+    try:
+        raw, tokens_in, tokens_out = _call_gemini(prompt, max_tokens=512)
+        if usage_tracker:
+            usage_tracker.record_gemini(tokens_in, tokens_out)
+        result = _extract_json(raw)
+        
+        search_strings = result.get("search_strings", [])
+        logger.info(f"Gemini translated query into {len(search_strings)} search strings.")
+        return search_strings
+    except Exception as exc:
+        logger.warning(f"Gemini query translation failed: {exc}")
+        # Fallback to a basic string if Gemini fails
+        return [f"{query[:50]} OTT streaming news"]
+
+
+# ---------------------------------------------------------------------------
+# Company Scoring (Filtering Exa Results)
+# ---------------------------------------------------------------------------
+
+def score_companies(companies: list, query: str, usage_tracker=None) -> dict:
+    """Uses Gemini to select the top 5 most relevant companies from Exa's raw results."""
+    prompt = f"""
+    You are a B2B sales strategist. Review the following companies found via web search.
+    Select up to the 5 most relevant companies that best match the original research brief.
+    
+    RESEARCH BRIEF:
+    {query}
+    
+    FOUND COMPANIES:
+    {json.dumps(companies, indent=2)}
+    
+    Return ONLY a JSON object categorizing them into 'selected' (max 5) and 'rejected':
+    {{
+        "selected": [
+            {{"name": "Company A", "domain": "companya.com", "reasoning": "Why they fit"}}
+        ],
+        "rejected": [
+            {{"name": "Company B", "reason": "Why they were skipped"}}
+        ]
+    }}
+    """
+    
+    try:
+        raw, tokens_in, tokens_out = _call_gemini(prompt, max_tokens=1024)
+        if usage_tracker:
+            usage_tracker.record_gemini(tokens_in, tokens_out)
+        result = _extract_json(raw)
+        
+        # Re-attach the source URLs from the original Exa search to the selected companies
+        selected = result.get("selected", [])
+        for s in selected:
+            match = next((c for c in companies if c.get("name", "").lower() == s.get("name", "").lower()), None)
+            if match:
+                s["source_url"] = match.get("source_url", "")
+                s["exa_snippet"] = match.get("exa_snippet", "")
+                # If Gemini hallucinated a domain, fall back to Exa's if available
+                if not s.get("domain"):
+                    s["domain"] = match.get("domain", "")
+                    
+        logger.info(f"Gemini selected {len(selected)} companies for deep enrichment.")
+        return result
+    except Exception as exc:
+        logger.warning(f"Gemini company scoring failed: {exc}")
+        # Fallback: If Gemini fails, just pass the first 5 companies through to the pipeline
+        return {"selected": companies[:5], "rejected": companies[5:]}
