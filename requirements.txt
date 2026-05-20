@@ -1,22 +1,22 @@
-# OTT Lead Gen — Frontier Edition
-# pip install -r requirements.txt
+# --- UI & Data Processing ---
+streamlit>=1.30.0
+pandas>=2.0.0
 
-# xAI / Grok (OpenAI-compatible)
-openai>=1.30.0
-
-# Anthropic / Claude
+# --- AI Models (The Underwriter & Discovery) ---
 anthropic>=0.40.0
+google-generativeai>=0.5.0
+# openai>=1.30.0  # Uncomment only if you plan to re-enable Grok/xAI later
 
-# Google Sheets
+# --- Google Sheets Persistence ---
 gspread>=6.0.0
 google-auth>=2.28.0
-google-generativeai>=0.5.0
 
-# HTTP (Jina reader, Apollo, optional enrichment)
+# --- HTTP & Internal APIs (Apollo, Wappalyzer fallback, etc.) ---
 requests>=2.31.0
 
-# Environment variables
-python-dotenv>=1.0.0
-
-# Exa — LinkedIn post intelligence
+# --- Deterministic Scrapers & Intelligence ---
 exa-py>=1.0.0
+google-play-scraper>=1.2.4
+
+# --- Environment Variables ---
+python-dotenv>=1.0.0
