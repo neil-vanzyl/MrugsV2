@@ -19,6 +19,13 @@ import main
 from utils.helpers import setup_logging
 from utils.usage_tracker import load_usage_history
 
+# --- CRITICAL: THIS MUST BE THE ABSOLUTE FIRST STREAMLIT COMMAND ---
+st.set_page_config(
+    page_title="Accedo Lead Scout",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
 setup_logging(level=logging.INFO)
 
 # ---------------------------------------------------------------------------
